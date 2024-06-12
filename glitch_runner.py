@@ -7,17 +7,37 @@ import logging
 import tempfile
 import sys
 import stlinfo
+import shutil
+import subprocess
 
 #./comp_script.sh [stlfile] [rotx] [roty] [rotz] [sampling-gap] [center-x] [center-y] [boxsize-x] [boxsize-y] [boxsize-z] [percentile]
 
 class SlicerPj3d:
-    def generate_gcode(self, stlfile, rotation):
-        # pj3d projectname create "Printer Name" "Print Settings"
-        # pj3d add stlfile
-        # pj3d printpart stlfile
-        # pj3d printpart stlfile --rotation --suffix
-        # return the two gcode files
-        pass
+    def __init__(self, printername, printsettings, pj3dbin='pj3d'):
+        self.printername = printername
+        self.printsettings = Path(printsettings).absolute()
+        self.pj3d = pj3dbin
+
+    def run_pj3d(self, *args):
+        cmd = [self.pj3d]
+        cmd.extend(args)
+        print(cmd)
+        return subprocess.run(cmd, check=True)
+
+    def generate_gcode(self, model, storage):
+        p = storage / model.name
+
+        self.run_pj3d(p, "create", self.printername, str(self.printsettings))
+        self.run_pj3d(p, "add", model.path)
+        self.run_pj3d(p, "pack")
+        self.run_pj3d(p, "printpart", model.path)
+        self.run_pj3d(p, "printpart", model.path, "--rotxyz",
+                      f"{model.rotation['x']},{model.rotation['y']},{model.rotation['z']}", "--suffix", "_rotated")
+
+        jobpath = p.with_suffix('.job')
+        prefix1 = jobpath / Path(model.path).with_suffix('.gcode')
+        prefix2 = str(prefix1.with_suffix('')) + "_rotated.gcode"
+        return  prefix1, Path(prefix2)
 
 class Model:
     def __init__(self):
@@ -41,9 +61,9 @@ class Model:
 
 
     @staticmethod
-    def from_stl(stlfile: Path):
+    def from_stl(stlfile: Path, name: str):
         x = Model()
-        x.name = stlfile.name
+        x.name = name
         x.path = str(stlfile)
         sf = stlinfo.STLFile()
         sf.load_file(stlfile)
@@ -81,11 +101,22 @@ class Model:
 class GlitchExpt:
     """A class for representing information for Glitch Experiments"""
     def __init__(self):
-        self.models = []
+        self.models = [] # maybe dictionary or orderdict?
 
     def add_model(self, model):
-        #TODO: duplicate checking
+        mnames = set([m.name for m in self.models])
+
+        if model.name in mnames:
+            raise KeyError(f"Duplicate name {model.name}")
+
         self.models.append(model)
+
+    def get_model(self, model):
+        for m in self.models:
+            if m.name == model:
+                return m
+
+        raise KeyError
 
     @staticmethod
     def from_dict(d):
@@ -144,7 +175,8 @@ def do_add(args):
         print(f"ERROR: {stlfile} does not exist.")
         return 1
 
-    m = Model.from_stl(stlfile)
+    n = args.name or stlfile.with_suffix('').name
+    m = Model.from_stl(stlfile, n)
 
     m.sampling = args.sampling
     m.threshold = args.threshold
@@ -157,9 +189,27 @@ def do_add(args):
         print(f"ERROR: {args.boxsize} is improperly formatted")
         return 1
 
-    ge.add_model(m)
+    try:
+        print(f"Adding model with name={m.name} to {args.exptyaml}")
+        ge.add_model(m)
+    except KeyError:
+        print(f"ERROR: Model with name={m.name} already exists, use -n to change name if adding a new model")
+        return 1
+
+
     save_yaml(ge, args.exptyaml)
     return 0
+
+def do_runone(args):
+    ge = load_yaml(args.exptyaml)
+    m = ge.get_model(args.name)
+
+    sl = SlicerPj3d(args.printer, args.printsettings, args.pj3d)
+
+    with tempfile.TemporaryDirectory(prefix="glitch") as d:
+        print(d)
+        gcode_orig, gcode_rotated = sl.generate_gcode(m, Path(d))
+        print(gcode_orig, gcode_rotated)
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Run glitch on models specified in file")
@@ -176,6 +226,13 @@ if __name__ == "__main__":
     am.add_argument("-s", "--sampling", help="Sampling interval", type=float, default=0.1)
     am.add_argument("-t", "--threshold", help="Threshold, in percentile", type=float, default=90)
     am.add_argument("-b", "--boxsize", help="Box/cube size, for visualization", default="1,1,1") # Is this also used for HD?
+    am.add_argument("-n", "--name", help="Unique name for model, by default just the part before .stl")
+
+    gm = sp.add_parser('runone', help="Run Glitch on a single model")
+    gm.add_argument("name", help="Name of model")
+    gm.add_argument("printer", help="Printer name")
+    gm.add_argument("printsettings", help="Printer settings")
+    gm.add_argument("--pj3d", help="Path to pj3d binary", default=shutil.which('pj3d') or 'pj3d')
 
     args = p.parse_args()
 
@@ -183,3 +240,5 @@ if __name__ == "__main__":
         sys.exit(do_create(args))
     elif args.cmd == "add":
         sys.exit(do_add(args))
+    elif args.cmd == "runone":
+        sys.exit(do_runone(args))
