@@ -7,12 +7,9 @@ from stl import mesh
 import trimesh
 import math
 
-stlinfo_path = '/Users/yumenghe/stlinfo/'
-sys.path.append(stlinfo_path)
-
 from stlinfo import STLFile
 
-# adopt code from stilinfo
+# adopt code from stlinfo
 # scale the model to fit the build plate
 
 if __name__ == "__main__":
@@ -33,7 +30,7 @@ if __name__ == "__main__":
     f.load_file(args.stlfile)
     minp, maxp = f.bounds()
     
-    if not f.fits((minp, maxp), x, y, z):  # need to scale the mesh
+    if not f.fits((minp, maxp), x, y, z, False):  # need to scale the mesh
         px = maxp.x - minp.x + 1
         py = maxp.y - minp.y + 1
         pz = maxp.z - minp.z + 1
