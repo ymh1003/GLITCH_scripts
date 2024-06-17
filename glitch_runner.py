@@ -9,19 +9,43 @@ import sys
 import stlinfo
 import shutil
 import subprocess
+from collections import namedtuple
+import re
+import logging
+import shlex
 
-#./comp_script.sh [stlfile] [rotx] [roty] [rotz] [sampling-gap] [center-x] [center-y] [boxsize-x] [boxsize-y] [boxsize-z] [percentile]
+logger = logging.getLogger()
+XYZTuple = namedtuple('XYZTuple', 'x y z')
 
 class SlicerPj3d:
+    MACHINE_DIM = re.compile(r'^machine_(depth|height|width)="([0-9\.]+)"$')
+
     def __init__(self, printername, printsettings, pj3dbin='pj3d'):
         self.printername = printername
         self.printsettings = Path(printsettings).absolute()
         self.pj3d = pj3dbin
+        self._load_printer_dimensions()
+
+    def _load_printer_dimensions(self):
+        out = {}
+        with open(self.printsettings, "r") as f:
+            for l in f:
+                m = SlicerPj3d.MACHINE_DIM.match(l)
+                if m is not None:
+                    out[m.group(1)] = m.group(2)
+
+        assert len(out) == 3, "Unable to find one dimension. Found {out.keys()}"
+        #TODO: check the mapping of X, Y, Z
+        self.dimensions = XYZTuple(x=float(out['width']),
+                                   y=float(out['depth']),
+                                   z=float(out['height']))
+
+        logger.info('Printer dimensions: {self.dimensions}')
 
     def run_pj3d(self, *args):
         cmd = [self.pj3d]
         cmd.extend(args)
-        print(cmd)
+        logger.info(shlex.join([str(s) for s in cmd]))
         return subprocess.run(cmd, check=True)
 
     def generate_gcode(self, model, storage):
@@ -31,13 +55,25 @@ class SlicerPj3d:
         self.run_pj3d(p, "add", model.path)
         self.run_pj3d(p, "pack")
         self.run_pj3d(p, "printpart", model.path)
-        self.run_pj3d(p, "printpart", model.path, "--rotxyz",
-                      f"{model.rotation['x']},{model.rotation['y']},{model.rotation['z']}", "--suffix", "_rotated")
 
         jobpath = p.with_suffix('.job')
-        prefix1 = jobpath / Path(model.path).with_suffix('.gcode')
+        prefix1 = jobpath / Path(model.path).with_suffix('.gcode').name
+
+        # in preparation for when we will do multiple rotations
+        out = []
+
+        rotation = XYZTuple(x = model.rotation['x'],
+                            y = model.rotation['y'],
+                            z = model.rotation['z'])
+
+        self.run_pj3d(p, "printpart", model.path, "--rotxyz",
+                      f"{rotation.x},{rotation.y},{rotation.z}",
+                      "--suffix", "_rotated")
+
         prefix2 = str(prefix1.with_suffix('')) + "_rotated.gcode"
-        return  prefix1, Path(prefix2)
+        out.append((rotation, prefix2))
+
+        return  prefix1, out
 
 class Model:
     def __init__(self):
@@ -49,16 +85,48 @@ class Model:
         self.boxsize = {'length': 1, 'width': 1, 'height': 1}
         self.threshold = None
 
-    def generate_gcode(self, slicer):
-        # scale the stl file if needed / TODO: cache?
+    def generate_gcode(self, slicer, storage):
+        gcode_orig, gcode_rotated = slicer.generate_gcode(self, storage)
+        return gcode_orig, gcode_rotated
 
-        # call the slicer
+    def run_glitch(self,
+                   gcode_orig,
+                   gcode_rotated_file,
+                   printer_dims,
+                   rotation,
+                   use_float = True,
+                   glitch = 'gcode_comp_Z.py'
+                   ):
 
-        pass
+        center_x, center_y = printer_dims.x / 2, printer_dims.y / 2
 
-    def invoke_glitch(self, gcode_orig, gcode_rotated):
-        pass
+        dim = XYZTuple(*self.dimensions)
+        height = dim.z / 2
 
+        boxlwh = [self.boxsize["length"], self.boxsize["width"], self.boxsize["height"]]
+
+        cmd = [glitch, "-c", str(center_x), str(center_y),
+               "-g", str(self.sampling),
+               "--cubesize"] + [str(s) for s in boxlwh] + \
+               ["-p", str(self.threshold),
+                "-d", str(0 if use_float else 1),
+                str(gcode_orig),
+                str(gcode_rotated_file),
+                str(rotation.x),
+                str(rotation.y),
+                str(rotation.z),
+                str(height)]
+
+        print(shlex.join(cmd))
+        return subprocess.run(cmd, check=True)
+
+    def invoke_glitch(self, slicer, gcode_orig, gcode_rotated,
+                      glitch='gcode_comp_Z.py'):
+        for (rot, gcode) in gcode_rotated:
+            self.run_glitch(gcode_orig, gcode,
+                            slicer.dimensions, rot,
+                            glitch = glitch)
+            print(gcode_orig, rot, gcode)
 
     @staticmethod
     def from_stl(stlfile: Path, name: str):
@@ -204,11 +272,12 @@ def do_runone(args):
     ge = load_yaml(args.exptyaml)
     m = ge.get_model(args.name)
 
-    sl = SlicerPj3d(args.printer, args.printsettings, args.pj3d)
+    sl = SlicerPj3d(args.printer, args.printsettings, pj3dbin = args.pj3d)
 
     with tempfile.TemporaryDirectory(prefix="glitch") as d:
         print(d)
-        gcode_orig, gcode_rotated = sl.generate_gcode(m, Path(d))
+        gcode_orig, gcode_rotated = m.generate_gcode(sl, Path(d))
+        m.invoke_glitch(sl, gcode_orig, gcode_rotated, glitch = args.glitch)
         print(gcode_orig, gcode_rotated)
 
 if __name__ == "__main__":
@@ -233,6 +302,7 @@ if __name__ == "__main__":
     gm.add_argument("printer", help="Printer name")
     gm.add_argument("printsettings", help="Printer settings")
     gm.add_argument("--pj3d", help="Path to pj3d binary", default=shutil.which('pj3d') or 'pj3d')
+    gm.add_argument("--glitch", help="Path to glitch", default=shutil.which('gcode_comp_Z.py') or 'gcode_comp_Z.py')
 
     args = p.parse_args()
 
