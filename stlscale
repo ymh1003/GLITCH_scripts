@@ -15,7 +15,7 @@ from stlinfo import STLFile
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Scale STL file")
     p.add_argument("stlfile")
-    p.add_argument("--volume", "-v", default="300,300,250", help="Build volume of x,y,z")
+    p.add_argument("--volume", "-v", default="300,300,290", help="Build volume of x,y,z")
     args = p.parse_args()
     
     orig_mesh = trimesh.load(args.stlfile)
