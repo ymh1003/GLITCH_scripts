@@ -248,6 +248,13 @@ def do_add(args):
 
     m.sampling = args.sampling
     m.threshold = args.threshold
+    
+    try:
+        m.rotation = parse_csnum(args.rot, float, ('x','y','z'), 0)
+    except ValueError:
+        print(f"ERROR: {args.rot} is improperly formatted")
+        return 1
+    
     try:
         m.boxsize = parse_csnum(args.boxsize, float, ('length',
                                                       'width',
