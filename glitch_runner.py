@@ -84,6 +84,7 @@ class Model:
         self.sampling = None
         self.boxsize = {'length': 1, 'width': 1, 'height': 1}
         self.threshold = None
+        self.density = None
 
     def generate_gcode(self, slicer, storage):
         gcode_orig, gcode_rotated = slicer.generate_gcode(self, storage)
@@ -106,9 +107,10 @@ class Model:
         boxlwh = [self.boxsize["length"], self.boxsize["width"], self.boxsize["height"]]
 
         cmd = [glitch, "-c", str(center_x), str(center_y),
-               "-g", str(self.sampling),
-               "--cubesize"] + [str(s) for s in boxlwh] + \
-               ["-p", str(self.threshold),
+               "-s", str(self.sampling),
+               "-b"] + [str(s) for s in boxlwh] + \
+               ["-t", str(self.threshold),
+                "-m", str(self.density),
                 "-d", str(0 if use_float else 1),
                 str(gcode_orig),
                 str(gcode_rotated_file),
@@ -153,6 +155,7 @@ class Model:
         x.sampling = d.get('sampling', x.sampling)
         x.boxsize = d.get('boxsize', x.boxsize)
         x.threshold = d.get('threshold', x.threshold)
+        x.density = d.get('density', x.density)
 
         return x
 
@@ -164,7 +167,8 @@ class Model:
                 'scaling': self.scaling,
                 'sampling': self.sampling,
                 'boxsize': self.boxsize,
-                'threshold': self.threshold}
+                'threshold': self.threshold,
+                'density': self.density}
 
 class GlitchExpt:
     """A class for representing information for Glitch Experiments"""
@@ -248,6 +252,7 @@ def do_add(args):
 
     m.sampling = args.sampling
     m.threshold = args.threshold
+    m.density = args.density
     
     try:
         m.rotation = parse_csnum(args.rot, float, ('x','y','z'), 0)
@@ -301,6 +306,7 @@ if __name__ == "__main__":
     am.add_argument("--rot", help="Glitch Rotation as X,Y,Z in degrees")
     am.add_argument("-s", "--sampling", help="Sampling interval", type=float, default=0.1)
     am.add_argument("-t", "--threshold", help="Threshold, in percentile", type=float, default=90)
+    am.add_argument("-d", "--density", help="Density for each box, in float", type=float, default=0.3)
     am.add_argument("-b", "--boxsize", help="Box/cube size, for visualization", default="1,1,1") # Is this also used for HD?
     am.add_argument("-n", "--name", help="Unique name for model, by default just the part before .stl")
 
