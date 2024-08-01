@@ -62,22 +62,30 @@ class SlicerPj3d:
         # in preparation for when we will do multiple rotations
         out = []
 
-        rotation = XYZTuple(x = model.rotation['x'],
-                            y = model.rotation['y'],
-                            z = model.rotation['z'])
+        # backward compat
+        if isinstance(model.rotation, dict):
+            rot = [model.rotation]
+        else:
+            rot = model.rotation
 
-        self.run_pj3d(p, "printpart", model.path, "--rotxyz",
-                      f"{rotation.x},{rotation.y},{rotation.z}",
-                      "--suffix", "_rotated")
+        for r in rot:
+            rotation = XYZTuple(x = r['x'],
+                                y = r['y'],
+                                z = r['z'])
 
-        prefix2 = str(prefix1.with_suffix('')) + "_rotated.gcode"
-        out.append((rotation, prefix2))
+            suffix = f"__x{rotation.x},y{rotation.y},z{rotation.z}__".replace(".", "_")
+            self.run_pj3d(p, "printpart", model.path, "--rotxyz",
+                          f"{rotation.x},{rotation.y},{rotation.z}",
+                          "--suffix", f"{suffix}_rotated")
+
+            prefix2 = str(prefix1.with_suffix('')) + f"{suffix}_rotated.gcode"
+            out.append((rotation, prefix2))
 
         return  prefix1, out
 
 class Model:
     def __init__(self):
-        self.rotation = {'x': 0, 'y': 0, 'z': 0}
+        self.rotation = [{'x': 0, 'y': 0, 'z': 0}]
         self.path = None
         self.scaling = 1
         self.dimensions = (None, None, None)
@@ -96,7 +104,8 @@ class Model:
                    printer_dims,
                    rotation,
                    use_float = True,
-                   glitch = 'gcode_comp_Z.py'
+                   glitch = 'gcode_comp_Z.py',
+                   dry_run = False
                    ):
 
         center_x, center_y = printer_dims.x / 2, printer_dims.y / 2
@@ -120,14 +129,17 @@ class Model:
                 str(height)]
 
         print(shlex.join(cmd))
-        return subprocess.run(cmd, check=True)
+        if not dry_run: return subprocess.run(cmd, check=True)
+        return None
 
     def invoke_glitch(self, slicer, gcode_orig, gcode_rotated,
-                      glitch='gcode_comp_Z.py'):
+                      glitch='gcode_comp_Z.py',
+                      dry_run = False):
         for (rot, gcode) in gcode_rotated:
             self.run_glitch(gcode_orig, gcode,
                             slicer.dimensions, rot,
-                            glitch = glitch)
+                            glitch = glitch,
+                            dry_run = dry_run)
             print(gcode_orig, rot, gcode)
 
     @staticmethod
@@ -253,13 +265,13 @@ def do_add(args):
     m.sampling = args.sampling
     m.threshold = args.threshold
     m.density = args.density
-    
+
     try:
-        m.rotation = parse_csnum(args.rot, float, ('x','y','z'), 0)
+        m.rotation = [parse_csnum(rot, float, ('x','y','z'), 0) for rot in args.rot]
     except ValueError:
         print(f"ERROR: {args.rot} is improperly formatted")
         return 1
-    
+
     try:
         m.boxsize = parse_csnum(args.boxsize, float, ('length',
                                                       'width',
@@ -289,8 +301,9 @@ def do_runone(args):
     with tempfile.TemporaryDirectory(prefix="glitch") as d:
         print(d)
         gcode_orig, gcode_rotated = m.generate_gcode(sl, Path(d))
-        m.invoke_glitch(sl, gcode_orig, gcode_rotated, glitch = args.glitch)
         print(gcode_orig, gcode_rotated)
+        m.invoke_glitch(sl, gcode_orig, gcode_rotated, glitch = args.glitch, dry_run=args.dryrun)
+
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Run glitch on models specified in file")
@@ -303,7 +316,8 @@ if __name__ == "__main__":
 
     am = sp.add_parser('add', help="Add a model")
     am.add_argument("stlfile", help="path to STL file")
-    am.add_argument("--rot", help="Glitch Rotation as X,Y,Z in degrees")
+    am.add_argument("--rot", help="Glitch Rotation as X,Y,Z in degrees",
+                    action="append", default=[])
     am.add_argument("-s", "--sampling", help="Sampling interval", type=float, default=0.1)
     am.add_argument("-t", "--threshold", help="Threshold, in percentile", type=float, default=90)
     am.add_argument("-d", "--density", help="Density for each box, in float", type=float, default=0.3)
@@ -316,6 +330,7 @@ if __name__ == "__main__":
     gm.add_argument("printsettings", help="Printer settings")
     gm.add_argument("--pj3d", help="Path to pj3d binary", default=shutil.which('pj3d') or 'pj3d')
     gm.add_argument("--glitch", help="Path to glitch", default=shutil.which('gcode_comp_Z.py') or 'gcode_comp_Z.py')
+    gm.add_argument("-n", dest="dryrun", help="Dry-run, don't actually run glitch", action="store_true")
 
     args = p.parse_args()
 
