@@ -195,6 +195,9 @@ class GlitchExpt:
 
         self.models.append(model)
 
+    def rm_model(self, model):
+        self.models.remove(model)
+
     def get_model(self, model):
         for m in self.models:
             if m.name == model:
@@ -292,6 +295,19 @@ def do_add(args):
     save_yaml(ge, args.exptyaml)
     return 0
 
+def do_rm(args):
+    ge = load_yaml(args.exptyaml)
+    try:
+        m = ge.get_model(args.name)
+        ge.rm_model(m)
+        print(f"Removed model '{args.name}'")
+    except KeyError:
+        print(f"ERROR: Model with name={args.name} does not exist")
+        return 1
+
+    save_yaml(ge, args.exptyaml)
+    return 0
+
 def do_runone(args):
     ge = load_yaml(args.exptyaml)
     m = ge.get_model(args.name)
@@ -324,6 +340,9 @@ if __name__ == "__main__":
     am.add_argument("-b", "--boxsize", help="Box/cube size, for visualization", default="1,1,1") # Is this also used for HD?
     am.add_argument("-n", "--name", help="Unique name for model, by default just the part before .stl")
 
+    rm = sp.add_parser('rm', help="Remove a model")
+    rm.add_argument("name", help="Name of the model to remove")
+
     gm = sp.add_parser('runone', help="Run Glitch on a single model")
     gm.add_argument("name", help="Name of model")
     gm.add_argument("printer", help="Printer name")
@@ -340,3 +359,7 @@ if __name__ == "__main__":
         sys.exit(do_add(args))
     elif args.cmd == "runone":
         sys.exit(do_runone(args))
+    elif args.cmd == "rm":
+        sys.exit(do_rm(args))
+    else:
+        raise NotImplementedError(args.cmd)
