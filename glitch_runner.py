@@ -78,7 +78,7 @@ class SlicerPj3d:
                           f"{rotation.x},{rotation.y},{rotation.z}",
                           "--suffix", f"{suffix}_rotated")
 
-            prefix2 = str(prefix1.with_suffix('')) + f"{suffix}_rotated.gcode"
+            prefix2 = Path(str(prefix1.with_suffix('')) + f"{suffix}_rotated.gcode")
             out.append((rotation, prefix2))
 
         return  prefix1, out
@@ -104,6 +104,7 @@ class Model:
                    printer_dims,
                    rotation,
                    use_float = True,
+                   output_dir = None,
                    glitch = 'gcode_comp_Z.py',
                    dry_run = False
                    ):
@@ -128,16 +129,23 @@ class Model:
                 str(rotation.z),
                 str(height)]
 
+        if output_dir is not None:
+            json_name = f"{gcode_orig.stem}-{gcode_rotated_file.stem}.json"
+            cmd += ["--collect",
+                    str(output_dir / json_name)]
+
         print(shlex.join(cmd))
         if not dry_run: return subprocess.run(cmd, check=True)
         return None
 
     def invoke_glitch(self, slicer, gcode_orig, gcode_rotated,
+                      output_dir = None,
                       glitch='gcode_comp_Z.py',
                       dry_run = False):
         for (rot, gcode) in gcode_rotated:
             self.run_glitch(gcode_orig, gcode,
                             slicer.dimensions, rot,
+                            output_dir = output_dir,
                             glitch = glitch,
                             dry_run = dry_run)
             print(gcode_orig, rot, gcode)
@@ -309,16 +317,26 @@ def do_rm(args):
     return 0
 
 def do_runone(args):
+    opdir = Path(args.outputdir)
+    if opdir.exists():
+        print(f"ERROR: Output directory {args.outputdir} exists.")
+        return 1
+
     ge = load_yaml(args.exptyaml)
     m = ge.get_model(args.name)
 
     sl = SlicerPj3d(args.printer, args.printsettings, pj3dbin = args.pj3d)
 
+    if not args.dryrun:
+        opdir.mkdir()
+
     with tempfile.TemporaryDirectory(prefix="glitch") as d:
         print(d)
         gcode_orig, gcode_rotated = m.generate_gcode(sl, Path(d))
         print(gcode_orig, gcode_rotated)
-        m.invoke_glitch(sl, gcode_orig, gcode_rotated, glitch = args.glitch, dry_run=args.dryrun)
+        m.invoke_glitch(sl, gcode_orig, gcode_rotated,
+                        output_dir = opdir,
+                        glitch = args.glitch, dry_run=args.dryrun)
 
 
 if __name__ == "__main__":
@@ -347,6 +365,7 @@ if __name__ == "__main__":
     gm.add_argument("name", help="Name of model")
     gm.add_argument("printer", help="Printer name")
     gm.add_argument("printsettings", help="Printer settings")
+    gm.add_argument("outputdir", help="Output directory, must not exist")
     gm.add_argument("--pj3d", help="Path to pj3d binary", default=shutil.which('pj3d') or 'pj3d')
     gm.add_argument("--glitch", help="Path to glitch", default=shutil.which('gcode_comp_Z.py') or 'gcode_comp_Z.py')
     gm.add_argument("-n", dest="dryrun", help="Dry-run, don't actually run glitch", action="store_true")
