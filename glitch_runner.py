@@ -40,13 +40,14 @@ class SlicerPj3d:
                                    y=float(out['depth']),
                                    z=float(out['height']))
 
-        logger.info('Printer dimensions: {self.dimensions}')
+        logger.info(f'Printer dimensions: {self.dimensions}')
 
     def run_pj3d(self, *args):
         cmd = [self.pj3d]
         cmd.extend(args)
         logger.info(shlex.join([str(s) for s in cmd]))
-        return subprocess.run(cmd, check=True)
+        return subprocess.run(cmd, capture_output=True,
+                              encoding='utf-8', check=True)
 
     def generate_gcode(self, model, storage):
         p = storage / model.name
@@ -95,7 +96,14 @@ class Model:
         self.density = None
 
     def generate_gcode(self, slicer, storage):
-        gcode_orig, gcode_rotated = slicer.generate_gcode(self, storage)
+        try:
+            gcode_orig, gcode_rotated = slicer.generate_gcode(self, storage)
+        except subprocess.CalledProcessError as e:
+            logging.error(e)
+            logging.info("pj3d:" + e.stdout)
+
+            return None, None
+
         return gcode_orig, gcode_rotated
 
     def run_glitch(self,
@@ -134,7 +142,7 @@ class Model:
             cmd += ["--collect",
                     str(output_dir / json_name)]
 
-        print(shlex.join(cmd))
+        logger.info(f"Running glitch: {shlex.join(cmd)}")
         if not dry_run: return subprocess.run(cmd, check=True)
         return None
 
@@ -143,12 +151,12 @@ class Model:
                       glitch='gcode_comp_Z.py',
                       dry_run = False):
         for (rot, gcode) in gcode_rotated:
+            logger.debug(f"Running glitch for rotation={rot} with rotated gcode='{gcode}' (original: {gcode_orig})")
             self.run_glitch(gcode_orig, gcode,
                             slicer.dimensions, rot,
                             output_dir = output_dir,
                             glitch = glitch,
                             dry_run = dry_run)
-            print(gcode_orig, rot, gcode)
 
     @staticmethod
     def from_stl(stlfile: Path, name: str):
@@ -239,7 +247,8 @@ def do_create(args):
     ey = Path(args.exptyaml)
 
     if ey.exists():
-        print(f"ERROR: {ey} already exists. Not overwriting")
+        print(f"ERROR: {ey} already exists. Not overwriting",
+              file=sys.stderr)
         return 1
 
     ge = GlitchExpt()
@@ -267,7 +276,7 @@ def do_add(args):
     stlfile = Path(args.stlfile)
 
     if not stlfile.exists():
-        print(f"ERROR: {stlfile} does not exist.")
+        print(f"ERROR: {stlfile} does not exist.", file=sys.stderr)
         return 1
 
     n = args.name or stlfile.with_suffix('').name
@@ -280,7 +289,7 @@ def do_add(args):
     try:
         m.rotation = [parse_csnum(rot, float, ('x','y','z'), 0) for rot in args.rot]
     except ValueError:
-        print(f"ERROR: {args.rot} is improperly formatted")
+        print(f"ERROR: {args.rot} is improperly formatted", file=sys.stderr)
         return 1
 
     try:
@@ -289,14 +298,15 @@ def do_add(args):
                                                       'height'),
                                 0)
     except ValueError:
-        print(f"ERROR: {args.boxsize} is improperly formatted")
+        print(f"ERROR: {args.boxsize} is improperly formatted", file=sys.stderr)
         return 1
 
     try:
-        print(f"Adding model with name={m.name} to {args.exptyaml}")
+        print(f"Adding model with name={m.name} to {args.exptyaml}",
+              file=sys.stderr)
         ge.add_model(m)
     except KeyError:
-        print(f"ERROR: Model with name={m.name} already exists, use -n to change name if adding a new model")
+        print(f"ERROR: Model with name={m.name} already exists, use -n to change name if adding a new model", file=sys.stderr)
         return 1
 
 
@@ -308,9 +318,10 @@ def do_rm(args):
     try:
         m = ge.get_model(args.name)
         ge.rm_model(m)
-        print(f"Removed model '{args.name}'")
+        print(f"Removed model '{args.name}'", file=sys.stderr)
     except KeyError:
-        print(f"ERROR: Model with name={args.name} does not exist")
+        print(f"ERROR: Model with name={args.name} does not exist",
+              file=sys.stderr)
         return 1
 
     save_yaml(ge, args.exptyaml)
@@ -319,7 +330,8 @@ def do_rm(args):
 def do_runone(args):
     opdir = Path(args.outputdir)
     if opdir.exists():
-        print(f"ERROR: Output directory {args.outputdir} exists.")
+        print(f"ERROR: Output directory {args.outputdir} exists.",
+              file=sys.stderr)
         return 1
 
     ge = load_yaml(args.exptyaml)
@@ -331,13 +343,37 @@ def do_runone(args):
         opdir.mkdir()
 
     with tempfile.TemporaryDirectory(prefix="glitch") as d:
-        print(d)
+        logger.info(f"Using temporary directory: {d}")
         gcode_orig, gcode_rotated = m.generate_gcode(sl, Path(d))
-        print(gcode_orig, gcode_rotated)
-        m.invoke_glitch(sl, gcode_orig, gcode_rotated,
-                        output_dir = opdir,
-                        glitch = args.glitch, dry_run=args.dryrun)
 
+        if gcode_orig is None:
+            logging.info("Gcode generation failed.")
+            return 1
+        else:
+            m.invoke_glitch(sl, gcode_orig, gcode_rotated,
+                            output_dir = opdir,
+                            glitch = args.glitch, dry_run=args.dryrun)
+
+    return 0
+
+def setup_logging(args):
+    logger.setLevel(logging.INFO)
+
+    fmt = logging.Formatter("%(asctime)s:%(levelname)s:%(message)s")
+    fh = logging.FileHandler(args.logfile, mode='w')
+    fh.setFormatter(fmt)
+    logger.addHandler(fh)
+
+    # logging.basicConfig(filename=args.logfile,
+    #                     filemode='w' if args.logfile else None,
+    #                     level=logging.INFO,
+    #                     format=)
+
+    if args.logfile:
+        sh = logging.StreamHandler(sys.stdout)
+        sh.setFormatter(fmt)
+        logging.getLogger().addHandler(sh)
+        logging.info(f"Logging to {args.logfile}")
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Run glitch on models specified in file")
@@ -369,6 +405,7 @@ if __name__ == "__main__":
     gm.add_argument("--pj3d", help="Path to pj3d binary", default=shutil.which('pj3d') or 'pj3d')
     gm.add_argument("--glitch", help="Path to glitch", default=shutil.which('gcode_comp_Z.py') or 'gcode_comp_Z.py')
     gm.add_argument("-n", dest="dryrun", help="Dry-run, don't actually run glitch", action="store_true")
+    gm.add_argument("-l", dest="logfile", help="Log file name")
 
     args = p.parse_args()
 
@@ -377,6 +414,7 @@ if __name__ == "__main__":
     elif args.cmd == "add":
         sys.exit(do_add(args))
     elif args.cmd == "runone":
+        setup_logging(args)
         sys.exit(do_runone(args))
     elif args.cmd == "rm":
         sys.exit(do_rm(args))
