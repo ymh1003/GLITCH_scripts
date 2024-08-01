@@ -13,6 +13,7 @@ from collections import namedtuple
 import re
 import logging
 import shlex
+import json
 
 logger = logging.getLogger()
 XYZTuple = namedtuple('XYZTuple', 'x y z')
@@ -150,6 +151,9 @@ class Model:
                       output_dir = None,
                       glitch='gcode_comp_Z.py',
                       dry_run = False):
+
+        #TODO: obtain overall bounding box using tool for ...
+
         for (rot, gcode) in gcode_rotated:
             logger.debug(f"Running glitch for rotation={rot} with rotated gcode='{gcode}' (original: {gcode_orig})")
             self.run_glitch(gcode_orig, gcode,
@@ -235,6 +239,8 @@ class GlitchExpt:
                 "models": list([m.to_dict() for m in self.models])}
 
 def load_yaml(yamlfile):
+    logger.info(f"Loading Glitch experiment yaml file: {yamlfile}")
+
     with open(yamlfile, "r") as f:
         expt = yaml.safe_load(f)
         return GlitchExpt.from_dict(expt)
@@ -356,6 +362,56 @@ def do_runone(args):
 
     return 0
 
+def do_gcode(args):
+    edir = Path(args.exptdir)
+    if edir.exists():
+        print(f"ERROR: Experiment output directory {args.exptdir} already exists.",
+              file=sys.stderr)
+        return 1
+
+    ge = load_yaml(args.exptyaml)
+    sl = SlicerPj3d(args.printer, args.printsettings, pj3dbin = args.pj3d)
+
+    models = list([m.name for m in ge.models])
+    if args.models:
+        include = set(args.models)
+        wrong = include - set(models)
+        if len(wrong):
+            print(f"ERROR: Model(s) {wrong} do not exist", file=sys.stderr)
+            return 1
+        models = list(args.models)
+        if len(include) != len(models):
+            #TODO: identify duplicate model
+            print(f"ERROR: Duplicate model names in list", file=sys.stderr)
+            return 1
+
+    logger.info(f"Generating gcode for {models}")
+
+    if not args.dryrun:
+        edir.mkdir()
+
+    logger.info(f"Storing gcode in {edir}")
+    out = {}
+    for mn in models:
+        m = ge.get_model(mn)
+
+        logger.info(f"Generating gcode for {m.name}")
+        if args.dryrun: continue
+
+        gcode_orig, gcode_rotated = m.generate_gcode(sl, Path(edir))
+        if gcode_orig is None:
+            logger.error(f"Gcode generation failed for {m.name}.")
+            return 1
+
+        out[m.name] = {'original': str(gcode_orig),
+                       'rotated': [{'rotation': r._asdict(),
+                                    'path': str(p)} for (r, p) in gcode_rotated]}
+
+    with open(edir / "gcodes.json", "w") as f:
+        json.dump(out, fp=f, indent='  ')
+
+    return 0
+
 def setup_logging(args):
     logger.setLevel(logging.INFO)
 
@@ -392,6 +448,15 @@ if __name__ == "__main__":
     rm = sp.add_parser('rm', help="Remove a model")
     rm.add_argument("name", help="Name of the model to remove")
 
+    gg = sp.add_parser('gcode', help="Generate GCode for an experiment")
+    gg.add_argument("exptdir", help="Directory to store G-code for experiment")
+    gg.add_argument("printer", help="Printer name")
+    gg.add_argument("printsettings", help="Printer settings")
+    gg.add_argument("models", nargs="*", help="Specify list of models to include in experiment")
+    gg.add_argument("--pj3d", help="Path to pj3d binary", default=shutil.which('pj3d') or 'pj3d')
+    gg.add_argument("-l", dest="logfile", help="Specify a log file")
+    gg.add_argument("-n", dest="dryrun", help="Dry-run, don't actually generate gcode", action="store_true")
+
     gm = sp.add_parser('runone', help="Run Glitch on a single model")
     gm.add_argument("name", help="Name of model")
     gm.add_argument("printer", help="Printer name")
@@ -413,5 +478,8 @@ if __name__ == "__main__":
         sys.exit(do_runone(args))
     elif args.cmd == "rm":
         sys.exit(do_rm(args))
+    elif args.cmd == "gcode":
+        setup_logging(args)
+        sys.exit(do_gcode(args))
     else:
         raise NotImplementedError(args.cmd)
