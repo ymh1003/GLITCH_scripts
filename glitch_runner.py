@@ -360,19 +360,14 @@ def setup_logging(args):
     logger.setLevel(logging.INFO)
 
     fmt = logging.Formatter("%(asctime)s:%(levelname)s:%(message)s")
-    fh = logging.FileHandler(args.logfile, mode='w')
-    fh.setFormatter(fmt)
-    logger.addHandler(fh)
-
-    # logging.basicConfig(filename=args.logfile,
-    #                     filemode='w' if args.logfile else None,
-    #                     level=logging.INFO,
-    #                     format=)
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setFormatter(fmt)
+    logging.getLogger().addHandler(sh)
 
     if args.logfile:
-        sh = logging.StreamHandler(sys.stdout)
-        sh.setFormatter(fmt)
-        logging.getLogger().addHandler(sh)
+        fh = logging.FileHandler(args.logfile, mode='w')
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
         logging.info(f"Logging to {args.logfile}")
 
 if __name__ == "__main__":
