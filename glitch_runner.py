@@ -162,6 +162,22 @@ class Model:
                             glitch = glitch,
                             dry_run = dry_run)
 
+    def invoke_glitch2(self, printerdim, gcode_orig, gcode_rotated,
+                      output_dir = None,
+                      glitch='gcode_comp_Z.py',
+                      dry_run = False):
+
+        #TODO: obtain overall bounding box using tool for ...
+
+        for (rot, gcode) in gcode_rotated:
+            logger.debug(f"Running glitch for rotation={rot} with rotated gcode='{gcode}' (original: {gcode_orig})")
+            self.run_glitch(gcode_orig, gcode,
+                            printerdim, rot,
+                            output_dir = output_dir,
+                            glitch = glitch,
+                            dry_run = dry_run)
+
+
     @staticmethod
     def from_stl(stlfile: Path, name: str):
         x = Model()
@@ -391,7 +407,13 @@ def do_gcode(args):
         edir.mkdir()
 
     logger.info(f"Storing gcode in {edir}")
-    out = {}
+
+    out = {'slicer':
+           {'printer': sl.printername,
+            'settings': str(sl.printsettings),
+            'dimensions': sl.dimensions._asdict()}}
+
+    modelinfo = {}
     for mn in models:
         m = ge.get_model(mn)
 
@@ -403,12 +425,65 @@ def do_gcode(args):
             logger.error(f"Gcode generation failed for {m.name}.")
             return 1
 
-        out[m.name] = {'original': str(gcode_orig),
-                       'rotated': [{'rotation': r._asdict(),
-                                    'path': str(p)} for (r, p) in gcode_rotated]}
+        modelinfo[m.name] = {'original': str(gcode_orig),
+                          'rotated': [{'rotation': r._asdict(),
+                                       'path': str(p)} for (r, p) in gcode_rotated]}
+
+    out['models'] = modelinfo
 
     with open(edir / "gcodes.json", "w") as f:
         json.dump(out, fp=f, indent='  ')
+
+    return 0
+
+
+def do_glitch(args):
+    edir = Path(args.exptdir)
+    if not edir.exists():
+        print(f"ERROR: Experiment directory {args.exptdir} does not exist.",
+              file=sys.stderr)
+        return 1
+
+    ge = load_yaml(args.exptyaml)
+
+    with open(edir / "gcodes.json", "r") as f:
+        je = json.load(f)
+
+    models = list(je['models'].keys())
+    printerdim = XYZTuple(**je['slicer']['dimensions'])
+
+    if args.models:
+        include = set(args.models)
+        wrong = include - set(models)
+        if len(wrong):
+            print(f"ERROR: Model(s) {wrong} do not exist", file=sys.stderr)
+            return 1
+
+        models = list(args.models)
+        if len(include) != len(models):
+            #TODO: identify duplicate model
+            print(f"ERROR: Duplicate model names in list", file=sys.stderr)
+            return 1
+
+    logger.info(f"Running glitch on {models}")
+    logger.info(f"Glitch output will be stored in {edir}")
+
+    out = {}
+    for mn in models:
+        m = ge.get_model(mn)
+        logger.info(f"Invoking glitch for {m.name}")
+
+        gcode_orig = Path(je['models'][mn]['original'])
+        gcode_rotated = [(XYZTuple(**r['rotation']),
+                          Path(r['path'])) for r in je['models'][mn]['rotated']]
+
+        opdir = edir / (mn + '.glitch')
+        assert not opdir.exists(), opdir
+        if not args.dryrun: opdir.mkdir()
+
+        m.invoke_glitch2(printerdim, gcode_orig, gcode_rotated,
+                         output_dir = opdir,
+                         glitch = args.glitch, dry_run=args.dryrun)
 
     return 0
 
@@ -457,6 +532,13 @@ if __name__ == "__main__":
     gg.add_argument("-l", dest="logfile", help="Specify a log file")
     gg.add_argument("-n", dest="dryrun", help="Dry-run, don't actually generate gcode", action="store_true")
 
+    gr = sp.add_parser('glitch', help="Run Glitch for an experiment")
+    gr.add_argument("exptdir", help="Directory containing experiment (with gcode already generated)")
+    gr.add_argument("models", nargs="*", help="Specify list of models to include in experiment")
+    gr.add_argument("--glitch", help="Path to glitch", default=shutil.which('gcode_comp_Z.py') or 'gcode_comp_Z.py')
+    gr.add_argument("-l", dest="logfile", help="Specify a log file")
+    gr.add_argument("-n", dest="dryrun", help="Dry-run, don't actually generate gcode", action="store_true")
+
     gm = sp.add_parser('runone', help="Run Glitch on a single model")
     gm.add_argument("name", help="Name of model")
     gm.add_argument("printer", help="Printer name")
@@ -481,5 +563,8 @@ if __name__ == "__main__":
     elif args.cmd == "gcode":
         setup_logging(args)
         sys.exit(do_gcode(args))
+    elif args.cmd == "glitch":
+        setup_logging(args)
+        sys.exit(do_glitch(args))
     else:
         raise NotImplementedError(args.cmd)
