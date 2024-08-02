@@ -207,6 +207,41 @@ class Model:
 
         return x
 
+    def override(self, sampling, boxsize, threshold, density):
+        if all([x is None for x in [sampling, boxsize, threshold, density]]):
+            return self
+
+        x = Model()
+
+        x.name = self.name
+        x.rotation = [dict(k) for k in self.rotation]
+        x.scaling = self.scaling
+        x.dimensions = self.dimensions
+        x.sampling = self.sampling if sampling is None else sampling
+        x.boxsize = self.boxsize if boxsize is None else boxsize
+        x.threshold = self.threshold if threshold is None else threshold
+        x.density = self.density if density is None else density
+
+        ov = []
+        if x.sampling != self.sampling: ov.append(f"s={x.sampling}")
+        if x.boxsize != self.boxsize:
+            sboxsize = ",".join([f"{k}_{v}" for k, v in x.boxsize.items()])
+            ov.append(f"b={sboxsize}")
+        if x.threshold != self.threshold: ov.append(f"t={x.threshold}")
+        if x.density != self.density: ov.append(f"m={x.density}")
+        x._override = ov
+
+        return x
+
+    @property
+    def has_override(self):
+        return hasattr(self, '_override')
+
+    @property
+    def override_suffix(self):
+        if not self.has_override: return ""
+        return "+".join(self._override)
+
     def to_dict(self):
         return {'name': self.name,
                 'path': self.path,
@@ -468,16 +503,34 @@ def do_glitch(args):
     logger.info(f"Running glitch on {models}")
     logger.info(f"Glitch output will be stored in {edir}")
 
+    boxsize = None
+    if args.boxsize:
+        try:
+            boxsize = parse_csnum(args.boxsize, float, ('length',
+                                                        'width',
+                                                        'height'),
+                                  0)
+        except ValueError:
+            print(f"ERROR: {args.boxsize} is improperly formatted", file=sys.stderr)
+            return 1
+
     out = {}
     for mn in models:
         m = ge.get_model(mn)
-        logger.info(f"Invoking glitch for {m.name}")
+        m = m.override(args.sampling, boxsize, args.threshold, args.density)
+
+        dirname = mn
+        if m.has_override:
+            dirname = dirname + "+" + m.override_suffix.replace(".", "_")
+            logger.info(f"Invoking glitch for model '{m.name}' with overridden parameters {m.override_suffix}")
+        else:
+            logger.info(f"Invoking glitch for model '{m.name}'")
 
         gcode_orig = Path(je['models'][mn]['original'])
         gcode_rotated = [(XYZTuple(**r['rotation']),
                           Path(r['path'])) for r in je['models'][mn]['rotated']]
 
-        opdir = edir / (mn + '.glitch')
+        opdir = edir / (dirname + '.glitch')
         assert not opdir.exists(), opdir
         if not args.dryrun: opdir.mkdir()
 
@@ -538,6 +591,10 @@ if __name__ == "__main__":
     gr.add_argument("--glitch", help="Path to glitch", default=shutil.which('gcode_comp_Z.py') or 'gcode_comp_Z.py')
     gr.add_argument("-l", dest="logfile", help="Specify a log file")
     gr.add_argument("-n", dest="dryrun", help="Dry-run, don't actually generate gcode", action="store_true")
+    gr.add_argument("-s", "--sampling", help="Sampling interval", type=float)
+    gr.add_argument("-t", "--threshold", help="Threshold, in percentile", type=float)
+    gr.add_argument("-d", "--density", help="Density for each box, in float", type=float)
+    gr.add_argument("-b", "--boxsize", help="Box/cube size, for visualization") # Is this also used for HD?
 
     gm = sp.add_parser('runone', help="Run Glitch on a single model")
     gm.add_argument("name", help="Name of model")
