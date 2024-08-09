@@ -32,15 +32,17 @@ def do_compute(args):
     minp, maxp = f.bounds()
     x, y, z = tuple([float(b) for b in args.volume.split(",")])
     
+    factor = 1
+    
     if not f.fits((minp, maxp), x, y, z, rot=False):  # need to scale the mesh
         px = maxp.x - minp.x + 1
         py = maxp.y - minp.y + 1
         pz = maxp.z - minp.z + 1
         
         scale = math.ceil(max([px / x, py / y, pz / z]))
-        return 1 / scale
-    else:
-        return 1
+        factor = 1 / scale
+    
+    return factor
     
 def do_scale(args):
     mesh = trimesh.load(args.file)
@@ -48,11 +50,14 @@ def do_scale(args):
     if args.factor != 1:
         mesh.apply_scale(args.factor)
         
-    if args.output is not None:
-        mesh.export(args.output)
-    else:
+    fn = args.output
+    if fn is None:
         p = Path(args.file)
-        mesh.export(p.with_stem(f"{p.stem}_scaled_{args.factor}"))
+        fn = p.with_stem(f"{p.stem}_scaled_{args.factor}")
+        
+    mesh.export(fn)
+    return fn
+    
     
 
 if __name__ == "__main__":
@@ -72,8 +77,8 @@ if __name__ == "__main__":
     args = p.parse_args()
     
     if args.cmd == "compute":
-        sys.exit(do_compute(args))
+        print(do_compute(args))
     elif args.cmd == "scale":
-        sys.exit(do_scale(args))
+        print(do_scale(args))
    
    
