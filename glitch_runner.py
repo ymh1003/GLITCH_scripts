@@ -217,11 +217,10 @@ class Model:
                             dry_run = dry_run)
 
     def invoke_glitch2(self, printerdim, gcode_orig, gcode_rotated,
-                      output_dir = None,
-                      glitch='gcode_comp_Z.py',
-                      dry_run = False):
-
-        #TODO: obtain overall bounding box using tool for ...
+                       oabbox,
+                       output_dir = None,
+                       glitch='gcode_comp_Z.py',
+                       dry_run = False):
 
         for (rot, gcode) in gcode_rotated:
             logger.debug(f"Running glitch for rotation={rot} with rotated gcode='{gcode}' (original: {gcode_orig})")
@@ -230,6 +229,23 @@ class Model:
                             output_dir = output_dir,
                             glitch = glitch,
                             dry_run = dry_run)
+
+    def get_oabbox(self, printer_dims,
+                   gcode_orig, gcode_rotated,
+                   oa_bbox = 'oa_bbox.py'):
+        #TODO: this will need to change to pass original gcode's rotation as well
+        center_x, center_y = printer_dims.x / 2, printer_dims.y / 2
+        dim = XYZTuple(*self.dimensions)
+        height = dim.z / 2
+
+        cmd = [oa_bbox, str(gcode_orig), f"{center_x},{center_y},{height}"]
+        for (rot, gcode) in gcode_rotated:
+            cmd.extend(['-p', str(gcode), ",".join([str(s) for s in [rot.x, rot.y, rot.z]])])
+
+        logger.info(shlex.join(cmd))
+
+        output = subprocess.check_output(cmd)
+        # perhaps parse json
 
 
     @staticmethod
@@ -590,7 +606,11 @@ def do_glitch(args):
         assert not opdir.exists(), opdir
         if not args.dryrun: opdir.mkdir()
 
+        oabbox = m.get_oabbox(printerdim, gcode_orig, gcode_rotated,
+                              oa_bbox=args.oabbox)
+
         m.invoke_glitch2(printerdim, gcode_orig, gcode_rotated,
+                         oabbox,
                          output_dir = opdir,
                          glitch = args.glitch, dry_run=args.dryrun)
 
@@ -652,6 +672,7 @@ if __name__ == "__main__":
     gr.add_argument("-t", "--threshold", help="Threshold, in percentile", type=float)
     gr.add_argument("-d", "--density", help="Density for each box, in float", type=float)
     gr.add_argument("-b", "--boxsize", help="Box/cube size, for visualization") # Is this also used for HD?
+    gr.add_argument("--oabbox", help="Path to oa_bbox.py", default=shutil.which('oa_bbox.py') or 'oa_bbox.py')
 
     gm = sp.add_parser('runone', help="Run Glitch on a single model")
     gm.add_argument("name", help="Name of model")
