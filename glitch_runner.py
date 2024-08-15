@@ -89,6 +89,7 @@ class Model:
     def __init__(self):
         self.rotation = [{'x': 0, 'y': 0, 'z': 0}]
         self.path = None
+        self.path_scaled = None
         self.scaling = 1
         self.dimensions = (None, None, None)
         self.sampling = None
@@ -96,9 +97,62 @@ class Model:
         self.threshold = None
         self.density = None
 
+    def do_scale(self, slicer, storage, stlscale = 'stlscale'):
+        logger.debug(f"Ignoring scaling value {self.scaling} in Yaml file for {self.name}")
+        # compute the scale by running
+        volume = "%d,%d,%d" % (slicer.dimensions.x,
+                               slicer.dimensions.y,
+                               slicer.dimensions.z)
+
+        output = subprocess.check_output([stlscale, str(self.path),
+                                          'compute',
+                                          '-v', volume], encoding='utf-8')
+        logger.info(f"stlscale returned {output} for {self.name}")
+        output = output.strip()
+        output = "0.5"
+        if output == "1":
+            logger.info(f"Not scaling model {self.name}")
+            return
+        else:
+            self.scaling = float(output)
+            self.path_scaled = storage / Path(self.path).with_suffix(".scaled.stl").name
+            if self.path_scaled.exists():
+                logger.info(f"Already found scaled model {self.path_scaled}, not rescaling")
+            else:
+                #TODO: will we need multiple scaled versions?
+                logger.info(f"Scaling model '{self.name}' by '{self.scaling}' to '{self.path_scaled}'")
+
+                subprocess.run([stlscale,
+                                str(self.path),
+                                'scale',
+                                '-o', self.path_scaled,
+                                str(self.scaling)], encoding='utf-8',
+                               check=True)
+
+
+    def get_scaled_model(self):
+        if self.scaling == 1:
+            return self
+        else:
+            # this isn't there on the scaled model
+            assert self.path_scaled is not None
+
+            x = Model()
+            x.name = self.name
+            x.rotation = self.rotation
+            x.scaling = self.scaling
+            x.dimensions = self.dimensions
+            x.sampling = self.sampling
+            x.boxsize = self.boxsize
+            x.threshold = self.threshold
+            x.density = self.density
+            x.path = self.path_scaled
+
+            return x
+
     def generate_gcode(self, slicer, storage):
         try:
-            gcode_orig, gcode_rotated = slicer.generate_gcode(self, storage)
+            gcode_orig, gcode_rotated = slicer.generate_gcode(self.get_scaled_model(), storage)
         except subprocess.CalledProcessError as e:
             logging.error(e)
             logging.info("pj3d:" + e.stdout)
@@ -221,6 +275,7 @@ class Model:
         x.boxsize = self.boxsize if boxsize is None else boxsize
         x.threshold = self.threshold if threshold is None else threshold
         x.density = self.density if density is None else density
+        x.path = self.path
 
         ov = []
         if x.sampling != self.sampling: ov.append(f"s={x.sampling}")
@@ -455,14 +510,15 @@ def do_gcode(args):
         logger.info(f"Generating gcode for {m.name}")
         if args.dryrun: continue
 
+        m.do_scale(sl, Path(edir), stlscale=args.stlscale)
         gcode_orig, gcode_rotated = m.generate_gcode(sl, Path(edir))
         if gcode_orig is None:
             logger.error(f"Gcode generation failed for {m.name}.")
             return 1
 
         modelinfo[m.name] = {'original': str(gcode_orig),
-                          'rotated': [{'rotation': r._asdict(),
-                                       'path': str(p)} for (r, p) in gcode_rotated]}
+                             'rotated': [{'rotation': r._asdict(),
+                                          'path': str(p)} for (r, p) in gcode_rotated]}
 
     out['models'] = modelinfo
 
@@ -584,6 +640,7 @@ if __name__ == "__main__":
     gg.add_argument("--pj3d", help="Path to pj3d binary", default=shutil.which('pj3d') or 'pj3d')
     gg.add_argument("-l", dest="logfile", help="Specify a log file")
     gg.add_argument("-n", dest="dryrun", help="Dry-run, don't actually generate gcode", action="store_true")
+    gg.add_argument("--stlscale", help="Path to stlscale binary", default=shutil.which('stlscale') or 'stlscale')
 
     gr = sp.add_parser('glitch', help="Run Glitch for an experiment")
     gr.add_argument("exptdir", help="Directory containing experiment (with gcode already generated)")
