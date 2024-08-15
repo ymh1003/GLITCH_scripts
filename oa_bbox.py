@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 '''
 Given several g-code files, compute the overall bounding box of all models.
 The first g-code is for the original orientation.
