@@ -95,7 +95,6 @@ class SlicerPj3d:
             self.run_pj3d(p, "add", m)
 
         self.run_pj3d(p, "pack")
-        #self.run_pj3d(p, "printpart", model.path)
 
         jobpath = p.with_suffix('.job')
         prefix1 = jobpath / Path(model.path).with_suffix('.gcode').name
@@ -103,18 +102,18 @@ class SlicerPj3d:
         out = []
 
         assert isinstance(model.rotation, list)
-        print(model.rotation, model.rotated_stl)
+
         for r, f in zip(model.rotation, model.rotated_stl):
             rotation = XYZTuple(x = r['x'],
                                 y = r['y'],
                                 z = r['z'])
 
-            suffix = f"__x{rotation.x},y{rotation.y},z{rotation.z}__".replace(".", "_")
             self.run_pj3d(p, "printpart", f, "--rotxyz",
                           f"{rotation.x},{rotation.y},{rotation.z}",
-                          "--suffix", f"{suffix}_rotated")
+                          #"--suffix", f"{suffix}_rotated" (inherits suffix from rotated stl)
+                          )
 
-            prefix2 = Path(str(prefix1.with_suffix('')) + f"{suffix}_rotated.gcode")
+            prefix2 = jobpath / Path(f).with_suffix('.gcode').name
             out.append((rotation, prefix2))
 
         return out[0][1], out[1:]
@@ -622,7 +621,8 @@ def do_gcode(args):
 
         modelinfo[m.name] = {'original':
                              {'rotation': m.rotation[0],
-                              'path': str(xm.rotated_stl[0])},
+                              'path': str(gcode_orig),
+                              'stlpath': str(xm.rotated_stl[0])},
                              'rotated': [{'rotation': r._asdict(),
                                           'path': str(p)} for (r, p) in gcode_rotated]}
 
