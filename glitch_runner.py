@@ -85,6 +85,40 @@ class SlicerPj3d:
 
         return  prefix1, out
 
+    def generate_gcode2(self, model, storage):
+        assert hasattr(model, 'rotated_stl')
+
+        p = storage / model.name
+
+        self.run_pj3d(p, "create", self.printername, str(self.printsettings))
+        for m in model.rotated_stl: # this contains the original as well
+            self.run_pj3d(p, "add", m)
+
+        self.run_pj3d(p, "pack")
+        #self.run_pj3d(p, "printpart", model.path)
+
+        jobpath = p.with_suffix('.job')
+        prefix1 = jobpath / Path(model.path).with_suffix('.gcode').name
+
+        out = []
+
+        assert isinstance(model.rotation, list)
+        print(model.rotation, model.rotated_stl)
+        for r, f in zip(model.rotation, model.rotated_stl):
+            rotation = XYZTuple(x = r['x'],
+                                y = r['y'],
+                                z = r['z'])
+
+            suffix = f"__x{rotation.x},y{rotation.y},z{rotation.z}__".replace(".", "_")
+            self.run_pj3d(p, "printpart", f, "--rotxyz",
+                          f"{rotation.x},{rotation.y},{rotation.z}",
+                          "--suffix", f"{suffix}_rotated")
+
+            prefix2 = Path(str(prefix1.with_suffix('')) + f"{suffix}_rotated.gcode")
+            out.append((rotation, prefix2))
+
+        return out[0][1], out[1:]
+
 class Model:
     def __init__(self):
         self.rotation = [{'x': 0, 'y': 0, 'z': 0}]
@@ -99,6 +133,7 @@ class Model:
 
     def do_scale(self, slicer, storage, stlscale = 'stlscale'):
         logger.debug(f"Ignoring scaling value {self.scaling} in Yaml file for {self.name}")
+
         # compute the scale by running
         volume = "%d,%d,%d" % (slicer.dimensions.x,
                                slicer.dimensions.y,
@@ -109,7 +144,7 @@ class Model:
                                           '-v', volume], encoding='utf-8')
         logger.info(f"stlscale returned {output} for {self.name}")
         output = output.strip()
-        output = "0.5"
+
         if output == "1":
             logger.info(f"Not scaling model {self.name}")
             return
@@ -149,6 +184,53 @@ class Model:
             x.path = self.path_scaled
 
             return x
+
+    def generate_rotations(self, storage, stlrotate='stlrotate'):
+        m = self.get_scaled_model()
+        rotated_stls = []
+
+        for rot in m.rotation:
+            rotation = XYZTuple(**rot)
+            if rotation.x == rotation.y and rotation.y == rotation.z and rotation.x == 0:
+                logging.info("Not generating rotated version")
+                rotated_stls.append(m.path)
+                continue
+
+            suffix = f"__x{rotation.x},y{rotation.y},z{rotation.z}__".replace(".", "_")
+
+            op = storage / f"{self.name}_{suffix}.stl"
+            logging.info(f"Rotating {m.path} by {rot} and storing to {op}")
+            cmd = [stlrotate, str(m.path), str(op),
+                   str(rotation.x), str(rotation.y), str(rotation.z)]
+            logging.info(f"Running {shlex.join(cmd)}")
+            try:
+                subprocess.run(cmd, check=True)
+            except subprocess.CalledProcessError as e:
+                logging.error(e)
+                logging.info("stlrotate: " + e.stdout)
+                return False
+
+            rotated_stls.append(op)
+
+        m.rotated_stl = rotated_stls
+        return m
+
+    def generate_gcode2(self, slicer, storage, stlrotate):
+        """For updated glitch"""
+
+        m = self.generate_rotations(storage, stlrotate = stlrotate)
+        if not m:
+            return None, None
+
+        try:
+            gcode_orig, gcode_rotated = slicer.generate_gcode2(m, storage)
+        except subprocess.CalledProcessError as e:
+            logging.error(e)
+            logging.info("pj3d:" + e.stdout)
+
+            return None, None
+
+        return gcode_orig, gcode_rotated, m
 
     def generate_gcode(self, slicer, storage):
         try:
@@ -526,15 +608,26 @@ def do_gcode(args):
         logger.info(f"Generating gcode for {m.name}")
         if args.dryrun: continue
 
-        m.do_scale(sl, Path(edir), stlscale=args.stlscale)
-        gcode_orig, gcode_rotated = m.generate_gcode(sl, Path(edir))
+        model_edir = edir / m.name
+        model_edir.mkdir()
+
+        m.do_scale(sl, Path(model_edir), stlscale=args.stlscale)
+        gcode_orig, gcode_rotated, xm = m.generate_gcode2(sl,
+                                                          Path(model_edir),
+                                                          stlrotate =
+                                                          args.stlrotate)
         if gcode_orig is None:
             logger.error(f"Gcode generation failed for {m.name}.")
             return 1
 
-        modelinfo[m.name] = {'original': str(gcode_orig),
+        modelinfo[m.name] = {'original':
+                             {'rotation': m.rotation[0],
+                              'path': str(xm.rotated_stl[0])},
                              'rotated': [{'rotation': r._asdict(),
                                           'path': str(p)} for (r, p) in gcode_rotated]}
+
+        for re, sp in zip(modelinfo[m.name]['rotated'], xm.rotated_stl[1:]):
+            re['stlpath'] = str(sp)
 
     out['models'] = modelinfo
 
@@ -661,6 +754,7 @@ if __name__ == "__main__":
     gg.add_argument("-l", dest="logfile", help="Specify a log file")
     gg.add_argument("-n", dest="dryrun", help="Dry-run, don't actually generate gcode", action="store_true")
     gg.add_argument("--stlscale", help="Path to stlscale binary", default=shutil.which('stlscale') or 'stlscale')
+    gg.add_argument("--stlrotate", help="Path to stlrotate binary", default=shutil.which('stlrotate') or 'stlrotate')
 
     gr = sp.add_parser('glitch', help="Run Glitch for an experiment")
     gr.add_argument("exptdir", help="Directory containing experiment (with gcode already generated)")
