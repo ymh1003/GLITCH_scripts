@@ -18,6 +18,14 @@ import json
 logger = logging.getLogger()
 XYZTuple = namedtuple('XYZTuple', 'x y z')
 
+def xyz2str(xyzt):
+    if isinstance(xyzt, dict):
+        return f"{xyzt['x']},{xyzt['y']},{xyzt['z']}"
+    elif isinstance(xyzt, XYZTuple):
+        return f"{xyzt.x},{xyzt.y},{xyzt.z}"
+    else:
+        raise NotImplementedError
+
 class SlicerPj3d:
     MACHINE_DIM = re.compile(r'^machine_(depth|height|width)="([0-9\.]+)"$')
 
@@ -290,6 +298,46 @@ class Model:
         if not dry_run: return subprocess.run(cmd, check=True)
         return None
 
+    def run_glitch2(self,
+                   gcode_orig,
+                   gcode_rotated_file,
+                   printer_dims,
+                   rotation,
+                   use_float = True,
+                   output_dir = None,
+                   glitch = 'gcode_comp_Z.py',
+                   dry_run = False
+                   ):
+
+        center_x, center_y = printer_dims.x / 2, printer_dims.y / 2
+
+        dim = XYZTuple(*self.rotated_model[0].dimensions)
+        height = dim.z / 2
+
+        boxlwh = [self.boxsize["length"], self.boxsize["width"], self.boxsize["height"]]
+
+        cmd = [glitch, "-c", str(center_x), str(center_y),
+               "-s", str(self.sampling),
+               "-b"] + [str(s) for s in boxlwh] + \
+               ["-t", str(self.threshold),
+                "-m", str(self.density),
+                "-d", str(0 if use_float else 1),
+                str(gcode_orig),
+                xyz2str(self.rotation[0]),
+                str(gcode_rotated_file),
+                xyz2str(rotation),
+                str(height)]
+
+        if output_dir is not None:
+            json_name = f"{gcode_orig.stem}-{gcode_rotated_file.stem}.json"
+            cmd += ["--collect",
+                    str(output_dir / json_name)]
+
+        logger.info(f"Running glitch: {shlex.join(cmd)}")
+        if not dry_run: return subprocess.run(cmd, check=True)
+        return None
+
+
     def invoke_glitch(self, slicer, gcode_orig, gcode_rotated,
                       output_dir = None,
                       glitch='gcode_comp_Z.py',
@@ -311,13 +359,13 @@ class Model:
                        glitch='gcode_comp_Z.py',
                        dry_run = False):
 
-        for (rot, gcode) in gcode_rotated:
+        for (rot, gcode), m in zip(gcode_rotated, self.rotated_model[1:]):
             logger.debug(f"Running glitch for rotation={rot} with rotated gcode='{gcode}' (original: {gcode_orig})")
-            self.run_glitch(gcode_orig, gcode,
-                            printerdim, rot,
-                            output_dir = output_dir,
-                            glitch = glitch,
-                            dry_run = dry_run)
+            self.run_glitch2(gcode_orig, gcode,
+                             printerdim, rot,
+                             output_dir = output_dir,
+                             glitch = glitch,
+                             dry_run = dry_run)
 
     def get_oabbox(self, printer_dims,
                    gcode_orig, gcode_rotated,
@@ -330,7 +378,7 @@ class Model:
 
         cmd = [oa_bbox,
                str(gcode_orig),
-               f"{self.rotation[0]['x']},{self.rotation[0]['y']},{self.rotation[0]['z']}",
+               xyz2str(self.rotation[0]),
                "--height",
                str(height),
                f"{center_x},{center_y}"]
@@ -727,10 +775,10 @@ def do_glitch(args):
         oabbox = m.get_oabbox(printerdim, gcode_orig, gcode_rotated,
                               oa_bbox=args.oabbox)
 
-        #m.invoke_glitch2(printerdim, gcode_orig, gcode_rotated,
-        #                 oabbox,
-        #                 output_dir = opdir,
-        #                 glitch = args.glitch, dry_run=args.dryrun)
+        m.invoke_glitch2(printerdim, gcode_orig, gcode_rotated,
+                        oabbox,
+                        output_dir = opdir,
+                        glitch = args.glitch, dry_run=args.dryrun)
 
     return 0
 
