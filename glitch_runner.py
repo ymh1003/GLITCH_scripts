@@ -334,8 +334,8 @@ class Model:
                     str(output_dir / json_name)]
 
         logger.info(f"Running glitch: {shlex.join(cmd)}")
-        if not dry_run: return subprocess.run(cmd, check=True)
-        return None
+        if not dry_run: return output_dir / json_name, subprocess.run(cmd, check=True)
+        return None, None
 
 
     def invoke_glitch(self, slicer, gcode_orig, gcode_rotated,
@@ -359,13 +359,30 @@ class Model:
                        glitch='gcode_comp_Z.py',
                        dry_run = False):
 
+        json_files = []
         for (rot, gcode), m in zip(gcode_rotated, self.rotated_model[1:]):
             logger.debug(f"Running glitch for rotation={rot} with rotated gcode='{gcode}' (original: {gcode_orig})")
-            self.run_glitch2(gcode_orig, gcode,
-                             printerdim, rot,
-                             output_dir = output_dir,
-                             glitch = glitch,
-                             dry_run = dry_run)
+            out, res = self.run_glitch2(gcode_orig, gcode,
+                                        printerdim, rot,
+                                        output_dir = output_dir,
+                                        glitch = glitch,
+                                        dry_run = dry_run)
+            if not res: return None
+            json_files.append(out)
+
+        return json_files
+
+    def invoke_heatmap_merge(self, json_files,
+                             heatmap_merge='heatmap_merge.py',
+                             dry_run = False):
+
+        cmd = [heatmap_merge] + [str(s) for s in json_files]
+        logger.info(f"Running heatmap_merge: {shlex.join(cmd)}")
+
+        if not dry_run:
+            return subprocess.run(cmd, check=True)
+
+        return None
 
     def get_oabbox(self, printer_dims,
                    gcode_orig, gcode_rotated,
@@ -775,10 +792,19 @@ def do_glitch(args):
         oabbox = m.get_oabbox(printerdim, gcode_orig, gcode_rotated,
                               oa_bbox=args.oabbox)
 
-        m.invoke_glitch2(printerdim, gcode_orig, gcode_rotated,
-                        oabbox,
-                        output_dir = opdir,
-                        glitch = args.glitch, dry_run=args.dryrun)
+        collect_files = m.invoke_glitch2(printerdim, gcode_orig,
+                                         gcode_rotated,
+                                         oabbox,
+                                         output_dir = opdir,
+                                         glitch = args.glitch,
+                                         dry_run=args.dryrun)
+
+        if collect_files is None:
+            return 1
+
+        m.invoke_heatmap_merge(collect_files,
+                               heatmap_merge = args.hmerge,
+                               dry_run = args.dryrun)
 
     return 0
 
@@ -840,6 +866,7 @@ if __name__ == "__main__":
     gr.add_argument("-d", "--density", help="Density for each box, in float", type=float)
     gr.add_argument("-b", "--boxsize", help="Box/cube size, for visualization") # Is this also used for HD?
     gr.add_argument("--oabbox", help="Path to oa_bbox.py", default=shutil.which('oa_bbox.py') or 'oa_bbox.py')
+    gr.add_argument("--hmerge", help="Path to heatmap_merge.py", default=shutil.which('heatmap_merge.py') or 'heatmap_merge.py')
 
     gm = sp.add_parser('runone', help="Run Glitch on a single model")
     gm.add_argument("name", help="Name of model")
