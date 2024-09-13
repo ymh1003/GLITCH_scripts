@@ -14,9 +14,92 @@ import re
 import logging
 import shlex
 import json
+import configparser
+import platform
+import os
 
 logger = logging.getLogger()
 XYZTuple = namedtuple('XYZTuple', 'x y z')
+
+def get_config_dir():
+    path = None
+    if platform.system() == 'Windows':
+        path = os.environ.get('APPDATA', '') or '~/AppData/Roaming'
+    else:
+        path = os.environ.get('XDG_CONFIG_HOME', '') or '~/.config'
+
+    return Path(os.path.abspath(os.path.expanduser(path)))
+
+class Config:
+    def __init__(self, path = None):
+        if path is None:
+            path = Config.default_path()
+
+        self.configfile = path / 'glitch_runner.cfg'
+        self.config = configparser.ConfigParser()
+        if self.configfile.exists():
+            logger.info(f"Loaded configuration file: {self.configfile}")
+            self.config.read(self.configfile)
+
+        if not self.config.has_section("paths"):
+            self.config.add_section("paths")
+
+    @staticmethod
+    def default_path():
+        return get_config_dir() / 'glitch_runner'
+
+    def write_config(self):
+        if not self.configfile.parent.exists():
+            os.makedirs(self.configfile.parent)
+
+        with open(self.configfile, "w") as f:
+            self.config.write(f)
+
+    def get_path(self, key, default=None):
+        return self.config.get("paths", key, fallback=default)
+
+    def set_path(self, key, value):
+        self.config.set("paths", key, value)
+
+
+class Paths:
+    pj3d = 'pj3d'
+    glitch = 'gcode_comp_Z.py'
+    oa_bbox = 'oa_bbox.py'
+    stlrotate = 'stlrotate'
+    stlscale = 'stlscale'
+    heatmap_merge = 'heatmap_merge.py'
+
+    # these don't work since unqualified paths must also be in PATH
+    def check(self, to_check = ['pj3d', 'stlrotate', 'stlscale',
+                                'glitch', 'oa_bbox', 'heatmap_merge']):
+        for i in to_check:
+            p = Path(getattr(self, i))
+
+            if not p.exists():
+                logger.error(f"Path '{p}' does not exist for '{i}'. Use config to set a path or supply it as an argument.")
+                return False
+
+        return True
+
+    def check_gcode(self):
+        return self.check(['pj3d', 'stlrotate', 'stlscale'])
+
+    def check_glitch(self):
+        return self.check(['glitch', 'oa_bbox', 'heatmap_merge'])
+
+
+def get_paths(args, config):
+    p = Paths()
+
+    p.pj3d = (args.pj3d if hasattr(args, 'pj3d') else None) or config.get_path('pj3d') or p.pj3d
+    p.glitch = (args.glitch if hasattr(args, 'glitch') else None) or config.get_path('glitch') or p.glitch
+    p.oa_bbox = (args.oa_bbox if hasattr(args, 'oa_bbox') else None) or  config.get_path('oa_bbox') or p.oa_bbox
+    p.stlrotate = (args.stlrotate if hasattr(args, 'stlrotate') else None) or config.get_path('stlrotate') or p.stlrotate
+    p.stlscale = (args.stlscale if hasattr(args, 'stlscale') else None) or config.get_path('stlscale') or p.stlscale
+    p.heatmap_merge = (args.heatmap_merge if hasattr(args, 'heatmap_merge') else None) or config.get_path('heatmap_merge') or p.heatmap_merge
+
+    return p
 
 def xyz2str(xyzt):
     if isinstance(xyzt, dict):
@@ -146,9 +229,9 @@ class Model:
                                slicer.dimensions.y,
                                slicer.dimensions.z)
 
-        output = subprocess.check_output([stlscale, str(self.path),
-                                          'compute',
-                                          '-v', volume], encoding='utf-8')
+        cmd = [stlscale, str(self.path), 'compute', '-v', volume]
+        logger.info(f"Invoking stlscale: {shlex.join(cmd)}")
+        output = subprocess.check_output(cmd, encoding='utf-8')
         logger.info(f"stlscale returned {output} for {self.name}")
         output = output.strip()
 
@@ -653,12 +736,14 @@ def do_runone(args):
 def do_gcode(args):
     edir = Path(args.exptdir)
     if edir.exists():
-        print(f"ERROR: Experiment output directory {args.exptdir} already exists.",
+        print(f"ERROR: Experiment output directory {args.exptdir} already exists. Remove it if a previous gcode failed.",
               file=sys.stderr)
         return 1
 
+    cfg = Config()
+    paths = get_paths(args, cfg)
     ge = load_yaml(args.exptyaml)
-    sl = SlicerPj3d(args.printer, args.printsettings, pj3dbin = args.pj3d)
+    sl = SlicerPj3d(args.printer, args.printsettings, pj3dbin = paths.pj3d)
 
     models = list([m.name for m in ge.models])
     if args.models:
@@ -695,11 +780,11 @@ def do_gcode(args):
         model_edir = edir / m.name
         model_edir.mkdir()
 
-        m.do_scale(sl, Path(model_edir), stlscale=args.stlscale)
+        m.do_scale(sl, Path(model_edir), stlscale=paths.stlscale)
         gcode_orig, gcode_rotated, xm = m.generate_gcode2(sl,
                                                           Path(model_edir),
                                                           stlrotate =
-                                                          args.stlrotate)
+                                                          paths.stlrotate)
         if gcode_orig is None:
             logger.error(f"Gcode generation failed for {m.name}.")
             return 1
@@ -729,6 +814,8 @@ def do_glitch(args):
               file=sys.stderr)
         return 1
 
+    cfg = Config()
+    paths = get_paths(args, cfg)
     ge = load_yaml(args.exptyaml)
 
     with open(edir / "gcodes.json", "r") as f:
@@ -790,23 +877,47 @@ def do_glitch(args):
         m.load_heights()
 
         oabbox = m.get_oabbox(printerdim, gcode_orig, gcode_rotated,
-                              oa_bbox=args.oabbox)
+                              oa_bbox=paths.oa_bbox)
 
         collect_files = m.invoke_glitch2(printerdim, gcode_orig,
                                          gcode_rotated,
                                          oabbox,
                                          output_dir = opdir,
-                                         glitch = args.glitch,
+                                         glitch = paths.glitch,
                                          dry_run=args.dryrun)
 
         if collect_files is None:
             return 1
 
         m.invoke_heatmap_merge(collect_files,
-                               heatmap_merge = args.hmerge,
+                               heatmap_merge = paths.heatmap_merge,
                                dry_run = args.dryrun)
 
     return 0
+
+def do_config(args):
+    cfg = Config()
+
+    for k in ['pj3d', 'glitch', 'stlscale', 'stlrotate',
+              ('oa_bbox', 'oabbox'), ('heatmap_merge', 'hmerge')]:
+        if isinstance(k, tuple):
+            key = k[0]
+            arg = getattr(args, k[1])
+        else:
+            key = k
+            arg = getattr(args, k)
+
+        if arg is None:
+            continue
+
+        p = Path(arg)
+        if p.exists():
+            print(f"Setting path '{p.absolute()}' for '{key}'")
+            cfg.set_path(key, str(p.absolute()))
+        else:
+            print(f"ERROR: Path '{p}' specified for '{key}' does not exist. Ignoring", file=sys.stderr)
+
+    cfg.write_config()
 
 def setup_logging(args):
     logger.setLevel(logging.INFO)
@@ -849,34 +960,42 @@ if __name__ == "__main__":
     gg.add_argument("printer", help="Printer name")
     gg.add_argument("printsettings", help="Printer settings")
     gg.add_argument("models", nargs="*", help="Specify list of models to include in experiment")
-    gg.add_argument("--pj3d", help="Path to pj3d binary", default=shutil.which('pj3d') or 'pj3d')
+    gg.add_argument("--pj3d", help="Path to pj3d binary", default=shutil.which('pj3d'))
     gg.add_argument("-l", dest="logfile", help="Specify a log file")
     gg.add_argument("-n", dest="dryrun", help="Dry-run, don't actually generate gcode", action="store_true")
-    gg.add_argument("--stlscale", help="Path to stlscale binary", default=shutil.which('stlscale') or 'stlscale')
-    gg.add_argument("--stlrotate", help="Path to stlrotate binary", default=shutil.which('stlrotate') or 'stlrotate')
+    gg.add_argument("--stlscale", help="Path to stlscale binary", default=shutil.which('stlscale'))
+    gg.add_argument("--stlrotate", help="Path to stlrotate binary", default=shutil.which('stlrotate'))
 
     gr = sp.add_parser('glitch', help="Run Glitch for an experiment")
     gr.add_argument("exptdir", help="Directory containing experiment (with gcode already generated)")
     gr.add_argument("models", nargs="*", help="Specify list of models to include in experiment")
-    gr.add_argument("--glitch", help="Path to glitch", default=shutil.which('gcode_comp_Z.py') or 'gcode_comp_Z.py')
+    gr.add_argument("--glitch", help="Path to glitch", default=shutil.which('gcode_comp_Z.py'))
     gr.add_argument("-l", dest="logfile", help="Specify a log file")
     gr.add_argument("-n", dest="dryrun", help="Dry-run, don't actually generate gcode", action="store_true")
     gr.add_argument("-s", "--sampling", help="Sampling interval", type=float)
     gr.add_argument("-t", "--threshold", help="Threshold, in percentile", type=float)
     gr.add_argument("-d", "--density", help="Density for each box, in float", type=float)
     gr.add_argument("-b", "--boxsize", help="Box/cube size, for visualization") # Is this also used for HD?
-    gr.add_argument("--oabbox", help="Path to oa_bbox.py", default=shutil.which('oa_bbox.py') or 'oa_bbox.py')
-    gr.add_argument("--hmerge", help="Path to heatmap_merge.py", default=shutil.which('heatmap_merge.py') or 'heatmap_merge.py')
+    gr.add_argument("--oabbox", help="Path to oa_bbox.py", default=shutil.which('oa_bbox.py'))
+    gr.add_argument("--hmerge", help="Path to heatmap_merge.py", default=shutil.which('heatmap_merge.py'))
 
-    gm = sp.add_parser('runone', help="Run Glitch on a single model")
-    gm.add_argument("name", help="Name of model")
-    gm.add_argument("printer", help="Printer name")
-    gm.add_argument("printsettings", help="Printer settings")
-    gm.add_argument("outputdir", help="Output directory, must not exist")
-    gm.add_argument("--pj3d", help="Path to pj3d binary", default=shutil.which('pj3d') or 'pj3d')
-    gm.add_argument("--glitch", help="Path to glitch", default=shutil.which('gcode_comp_Z.py') or 'gcode_comp_Z.py')
-    gm.add_argument("-n", dest="dryrun", help="Dry-run, don't actually run glitch", action="store_true")
-    gm.add_argument("-l", dest="logfile", help="Log file name")
+    # gm = sp.add_parser('runone', help="Run Glitch on a single model")
+    # gm.add_argument("name", help="Name of model")
+    # gm.add_argument("printer", help="Printer name")
+    # gm.add_argument("printsettings", help="Printer settings")
+    # gm.add_argument("outputdir", help="Output directory, must not exist")
+    # gm.add_argument("--pj3d", help="Path to pj3d binary", default=shutil.which('pj3d'))
+    # gm.add_argument("--glitch", help="Path to glitch", default=shutil.which('gcode_comp_Z.py'))
+    # gm.add_argument("-n", dest="dryrun", help="Dry-run, don't actually run glitch", action="store_true")
+    # gm.add_argument("-l", dest="logfile", help="Log file name")
+
+    cm = sp.add_parser('config', help="Configure Glitch Runner")
+    cm.add_argument("--pj3d", help="Path to pj3d binary")
+    cm.add_argument("--glitch", help="Path to glitch")
+    cm.add_argument("--oabbox", help="Path to oa_bbox.py")
+    cm.add_argument("--hmerge", help="Path to heatmap_merge.py")
+    cm.add_argument("--stlscale", help="Path to stlscale binary")
+    cm.add_argument("--stlrotate", help="Path to stlrotate binary")
 
     args = p.parse_args()
 
@@ -895,5 +1014,7 @@ if __name__ == "__main__":
     elif args.cmd == "glitch":
         setup_logging(args)
         sys.exit(do_glitch(args))
+    elif args.cmd == "config":
+        sys.exit(do_config(args))
     else:
         raise NotImplementedError(args.cmd)
