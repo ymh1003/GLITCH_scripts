@@ -465,7 +465,7 @@ class Model:
                              heatmap_merge='heatmap_merge.py',
                              dry_run = False):
 
-        cmd = [heatmap_merge] + [str(s) for s in json_files]
+        cmd = [heatmap_merge] + ["-t", str(self.threshold)] + [str(s) for s in json_files]
         logger.info(f"Running heatmap_merge: {shlex.join(cmd)}")
 
         if not dry_run:
