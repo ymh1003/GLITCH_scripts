@@ -318,7 +318,7 @@ class Model:
 
         m = self.generate_rotations(storage, stlrotate = stlrotate)
         if not m:
-            return None, None
+            return None, None, None
 
         try:
             gcode_orig, gcode_rotated = slicer.generate_gcode2(m, storage)
@@ -326,7 +326,7 @@ class Model:
             logging.error(e)
             logging.info("pj3d:" + e.stdout)
 
-            return None, None
+            return None, None, None
 
         return gcode_orig, gcode_rotated, m
 
@@ -382,15 +382,16 @@ class Model:
         return None
 
     def run_glitch2(self,
-                   gcode_orig,
-                   gcode_rotated_file,
-                   printer_dims,
-                   rotation,
-                   use_float = True,
-                   output_dir = None,
-                   glitch = 'gcode_comp_Z.py',
-                   dry_run = False
-                   ):
+                    gcode_orig,
+                    gcode_rotated_file,
+                    printer_dims,
+                    rotation,
+                    oa_bbox,
+                    use_float = True,
+                    output_dir = None,
+                    glitch = 'gcode_comp_Z.py',
+                    dry_run = False
+                    ):
 
         center_x, center_y = printer_dims.x / 2, printer_dims.y / 2
 
@@ -405,6 +406,9 @@ class Model:
                ["-t", str(self.threshold),
                 "-m", str(self.density),
                 "-d", str(0 if use_float else 1),
+                "--bound",
+                ",".join([str(s) for s in oa_bbox['bbminxyz']]),
+                ",".join([str(s) for s in oa_bbox['bbmaxxyz']]),
                 str(gcode_orig),
                 xyz2str(self.rotation[0]),
                 str(gcode_rotated_file),
@@ -447,9 +451,11 @@ class Model:
             logger.debug(f"Running glitch for rotation={rot} with rotated gcode='{gcode}' (original: {gcode_orig})")
             out, res = self.run_glitch2(gcode_orig, gcode,
                                         printerdim, rot,
+                                        oabbox,
                                         output_dir = output_dir,
                                         glitch = glitch,
                                         dry_run = dry_run)
+            if dry_run: continue
             if not res: return None
             json_files.append(out)
 
@@ -495,7 +501,13 @@ class Model:
 
         output = subprocess.check_output(cmd, encoding='utf-8')
         logger.info(f"oa_bbox output: {output}")
-        return json.loads(output)
+        bounds = json.loads(output) # returned as two arrays
+        assert len(bounds) == 2, len(bounds)
+        assert len(bounds[0]) == len(bounds[1]) == 3
+
+        return {'bbminxyz': bounds[0],
+                'bbmaxxyz': bounds[1]}
+
 
     @staticmethod
     def from_stl(stlfile: Path, name: str):
@@ -886,7 +898,7 @@ def do_glitch(args):
                                          glitch = paths.glitch,
                                          dry_run=args.dryrun)
 
-        if collect_files is None:
+        if collect_files is None and not args.dryrun:
             return 1
 
         m.invoke_heatmap_merge(collect_files,
