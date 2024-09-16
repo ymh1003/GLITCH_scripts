@@ -94,10 +94,10 @@ def get_paths(args, config):
 
     p.pj3d = (args.pj3d if hasattr(args, 'pj3d') else None) or config.get_path('pj3d') or p.pj3d
     p.glitch = (args.glitch if hasattr(args, 'glitch') else None) or config.get_path('glitch') or p.glitch
-    p.oa_bbox = (args.oa_bbox if hasattr(args, 'oa_bbox') else None) or  config.get_path('oa_bbox') or p.oa_bbox
+    p.oa_bbox = (args.oabbox if hasattr(args, 'oabbox') else None) or  config.get_path('oa_bbox') or p.oa_bbox
     p.stlrotate = (args.stlrotate if hasattr(args, 'stlrotate') else None) or config.get_path('stlrotate') or p.stlrotate
     p.stlscale = (args.stlscale if hasattr(args, 'stlscale') else None) or config.get_path('stlscale') or p.stlscale
-    p.heatmap_merge = (args.heatmap_merge if hasattr(args, 'heatmap_merge') else None) or config.get_path('heatmap_merge') or p.heatmap_merge
+    p.heatmap_merge = (args.hmerge if hasattr(args, 'hmerge') else None) or config.get_path('heatmap_merge') or p.heatmap_merge
 
     return p
 
