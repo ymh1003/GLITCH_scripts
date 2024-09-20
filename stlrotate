@@ -1,0 +1,69 @@
+#!/usr/bin/env python3
+
+import sys
+import argparse
+#import trimesh # not sure we need this
+import math
+import stl
+from pathlib import Path
+
+
+def get_dimensions(mesh):
+    minx = mesh.x.min()
+    maxx = mesh.x.max()
+
+    miny = mesh.y.min()
+    maxy = mesh.y.max()
+
+    minz = mesh.z.min()
+    maxz = mesh.z.max()
+
+    return maxx - minx, maxy - miny, maxz -  minz
+
+def load_mesh(meshfile):
+    p = Path(meshfile)
+    if p.suffix.lower() == ".3mf":
+        for m in stl.Mesh.from_3mf_file(p):
+            # this loads the first object of a 3MF file only
+            return m
+    elif p.suffix.lower() == ".stl":
+        return stl.Mesh.from_file(p)
+    else:
+        raise NotImplementedError("Only support STL/3MF file formats")
+
+def rotate_mesh(mesh, rotx, roty, rotz):
+    if rotx != 0:
+        mesh.rotate([0.5, 0, 0], rotx) # why 0.5? this is in the docs
+
+    if roty != 0:
+        mesh.rotate([0, 0.5, 0], roty)
+
+    if rotz != 0:
+        mesh.rotate([0, 0, 0.5], rotz)
+
+    return None
+
+def save_mesh(mesh, output):
+    mesh.save(output)
+
+if __name__ == "__main__":
+    p = argparse.ArgumentParser(description="Rotate STL/3mf file")
+
+    p.add_argument("input", metavar="INPUT", help="Input file, can be 3MF or STL")
+    p.add_argument("output", metavar="OUTPUT", help="Output file, always STL")
+    p.add_argument("rotx", metavar="ROTX",
+                   help="Rotation about X-axis, in degrees",type=float)
+    p.add_argument("roty", metavar="ROTY",
+                   help="Rotation about Y-axis, in degrees",type=float)
+    p.add_argument("rotz", metavar="ROTZ",
+                   help="Rotation about Z-axis, in degrees",type=float)
+
+
+    args = p.parse_args()
+
+    mesh = load_mesh(args.input)
+    rotate_mesh(mesh, args.rotx, args.roty, args.rotz)
+    # Note: we don't translate Z.
+    x, y, z = get_dimensions(mesh)
+    save_mesh(mesh, args.output)
+    print({'X': x, 'Y': y, 'Z': z})

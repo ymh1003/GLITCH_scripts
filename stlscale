@@ -1,43 +1,81 @@
 #!/usr/bin/env python3
 
 import sys
-import os
 import argparse
-from stl import mesh
 import trimesh
 import math
+import stl
+from pathlib import Path
 
 from stlinfo import STLFile
 
 # adopt code from stlinfo
 # scale the model to fit the build plate
+def to_stl(file):
+    p = Path(file)
+    if p.suffix == ".3mf":
+        np = p.with_suffix(".stl")
+        for m in stl.Mesh.from_3mf_file(p):
+            m.save(np)
+        return np
+    elif p.suffix == ".stl":
+        return p
+    else:
+        raise NotImplementedError("Only support stl/3mf file format")
 
-if __name__ == "__main__":
-    p = argparse.ArgumentParser(description="Scale STL file")
-    p.add_argument("stlfile")
-    p.add_argument("--volume", "-v", default="300,300,290", help="Build volume of x,y,z")
-    args = p.parse_args()
-    
-    orig_mesh = trimesh.load(args.stlfile)
-    scaled_mesh = orig_mesh
-    
-    base_name = os.path.splitext(os.path.basename(args.stlfile))[0]
-    output_filepath = os.path.join(os.path.dirname(args.stlfile), f"{base_name}_scaled.stl")
-    
+def do_compute(args):
+    f = STLFile()
+    f.load_file(args.file)
+    minp, maxp = f.bounds()
     x, y, z = tuple([float(b) for b in args.volume.split(",")])
     
-    f = STLFile()
-    f.load_file(args.stlfile)
-    minp, maxp = f.bounds()
+    factor = 1
     
-    if not f.fits((minp, maxp), x, y, z, False):  # need to scale the mesh
+    if not f.fits((minp, maxp), x, y, z, rot=False):  # need to scale the mesh
         px = maxp.x - minp.x + 1
         py = maxp.y - minp.y + 1
         pz = maxp.z - minp.z + 1
         
         scale = math.ceil(max([px / x, py / y, pz / z]))
-        scaled_mesh.apply_scale(1 / scale)  # uniform scaling
+        factor = 1 / scale
     
-    scaled_mesh.export(output_filepath)
+    return factor
+    
+def do_scale(args):
+    mesh = trimesh.load(args.file)
+    
+    if args.factor != 1:
+        mesh.apply_scale(args.factor)
+        
+    fn = args.output
+    if fn is None:
+        p = Path(args.file)
+        fn = p.with_stem(f"{p.stem}_scaled_{args.factor}")
+        
+    mesh.export(fn)
+    return fn
+    
+    
+
+if __name__ == "__main__":
+    p = argparse.ArgumentParser(description="Scale stl/3mf file")
+    
+    p.add_argument("file", type=to_stl)
+    
+    sp = p.add_subparsers(dest="cmd")
+    
+    sf = sp.add_parser("compute", help="calculate scaling factor")
+    sf.add_argument("--volume", "-v", default="300,300,250", help="Build volume in the format of x,y,z")
+    
+    ss = sp.add_parser("scale", help="scale file")
+    ss.add_argument("factor", type=float, help="scaling factor")
+    ss.add_argument("-o", "--output", help="directory to store the scaled mesh")
+    
+    args = p.parse_args()
+    
+    if args.cmd == "compute":
+        print(do_compute(args))
+    elif args.cmd == "scale":
+        print(do_scale(args))
    
    
