@@ -404,21 +404,23 @@ class Model:
                "-s", str(self.sampling),
                "-b"] + [str(s) for s in boxlwh] + \
                ["-t", str(self.threshold),
-                "-m", str(self.density),
+                #"-m", str(self.density),
                 "-d", str(0 if use_float else 1),
                 "--bound",
                 ",".join([str(s) for s in oa_bbox['bbminxyz']]),
-                ",".join([str(s) for s in oa_bbox['bbmaxxyz']]),
-                str(gcode_orig),
-                xyz2str(self.rotation[0]),
-                str(gcode_rotated_file),
-                xyz2str(rotation),
-                str(height)]
+                ",".join([str(s) for s in oa_bbox['bbmaxxyz']])
+                ]
 
         if output_dir is not None:
             json_name = f"{gcode_orig.stem}-{gcode_rotated_file.stem}.json"
             cmd += ["--collect",
                     str(output_dir / json_name)]
+
+        cmd.extend([str(gcode_orig),
+                    xyz2str(self.rotation[0]),
+                    str(gcode_rotated_file),
+                    xyz2str(rotation),
+                    str(height)])
 
         logger.info(f"Running glitch: {shlex.join(cmd)}")
         if not dry_run: return output_dir / json_name, subprocess.run(cmd, check=True)
