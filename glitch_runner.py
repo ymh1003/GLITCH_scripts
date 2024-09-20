@@ -1028,5 +1028,8 @@ if __name__ == "__main__":
         sys.exit(do_glitch(args))
     elif args.cmd == "config":
         sys.exit(do_config(args))
+    elif args.cmd is None:
+        p.print_usage()
+        sys.exit(0)
     else:
         raise NotImplementedError(args.cmd)
