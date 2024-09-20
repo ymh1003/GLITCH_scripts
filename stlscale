@@ -7,12 +7,9 @@ import math
 import stl
 from pathlib import Path
 
-# stlinfo_path = '/Users/yumenghe/stlinfo/'
-# sys.path.append(stlinfo_path)
-
 from stlinfo import STLFile
 
-# adopt code from stilinfo
+# adopt code from stlinfo
 # scale the model to fit the build plate
 def to_stl(file):
     p = Path(file)
