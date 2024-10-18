@@ -393,14 +393,15 @@ class Model:
                     dry_run = False
                     ):
 
-        center_x, center_y = printer_dims.x / 2, printer_dims.y / 2
+        center_x, center_y, orig_h = printer_dims.x / 2, printer_dims.y / 2, printer_dims.z
 
         dim = XYZTuple(*self.rotated_model[0].dimensions)
-        height = dim.z / 2
+        rot_height = dim.z
 
         boxlwh = [self.boxsize["length"], self.boxsize["width"], self.boxsize["height"]]
 
-        cmd = [glitch, "-c", str(center_x), str(center_y),
+        cmd = [glitch, "--height", str(orig_h),
+               "-c", str(center_x), str(center_y),
                "-s", str(self.sampling),
                "-b"] + [str(s) for s in boxlwh] + \
                ["-t", str(self.threshold),
@@ -420,7 +421,7 @@ class Model:
                     xyz2str(self.rotation[0]),
                     str(gcode_rotated_file),
                     xyz2str(rotation),
-                    str(height)])
+                    str(rot_height)])
 
         logger.info(f"Running glitch: {shlex.join(cmd)}")
         if not dry_run: return output_dir / json_name, subprocess.run(cmd, check=True)
