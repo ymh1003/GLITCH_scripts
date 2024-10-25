@@ -386,6 +386,7 @@ class Model:
                     gcode_rotated_file,
                     printer_dims,
                     rotation,
+                    rot_h,
                     oa_bbox,
                     use_float = True,
                     output_dir = None,
@@ -393,14 +394,14 @@ class Model:
                     dry_run = False
                     ):
 
-        center_x, center_y, orig_h = printer_dims.x / 2, printer_dims.y / 2, printer_dims.z
+        center_x, center_y = printer_dims.x / 2, printer_dims.y / 2
 
-        dim = XYZTuple(*self.rotated_model[0].dimensions)
-        rot_height = dim.z
+        # dim = XYZTuple(*self.rotated_model[0].dimensions)
+        # rot_height = dim.z
 
         boxlwh = [self.boxsize["length"], self.boxsize["width"], self.boxsize["height"]]
 
-        cmd = [glitch, "--height", str(orig_h),
+        cmd = [glitch, "--height", str(self.dimensions[2]),
                "-c", str(center_x), str(center_y),
                "-s", str(self.sampling),
                "-b"] + [str(s) for s in boxlwh] + \
@@ -421,7 +422,7 @@ class Model:
                     xyz2str(self.rotation[0]),
                     str(gcode_rotated_file),
                     xyz2str(rotation),
-                    str(rot_height)])
+                    str(rot_h)])
 
         logger.info(f"Running glitch: {shlex.join(cmd)}")
         if not dry_run: return output_dir / json_name, subprocess.run(cmd, check=True)
@@ -451,9 +452,11 @@ class Model:
 
         json_files = []
         for (rot, gcode), m in zip(gcode_rotated, self.rotated_model[1:]):
+            rot_height = XYZTuple(m.dimensions).z
             logger.debug(f"Running glitch for rotation={rot} with rotated gcode='{gcode}' (original: {gcode_orig})")
             out, res = self.run_glitch2(gcode_orig, gcode,
                                         printerdim, rot,
+                                        rot_height,
                                         oabbox,
                                         output_dir = output_dir,
                                         glitch = glitch,
