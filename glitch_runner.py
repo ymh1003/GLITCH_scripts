@@ -520,9 +520,9 @@ class Model:
         sf = stlinfo.STLFile()
         sf.load_file(stlfile)
         bmin, bmax = sf.bounds()
-        x.dimensions = (float(bmax.x - bmin.x + 1),
-                        float(bmax.y - bmin.y + 1),
-                        float(bmax.z - bmin.z + 1))
+        x.dimensions = (float(bmax.x - bmin.x),
+                        float(bmax.y - bmin.y),
+                        float(bmax.z - bmin.z))
 
         return x
 
