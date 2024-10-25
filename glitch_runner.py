@@ -452,7 +452,7 @@ class Model:
 
         json_files = []
         for (rot, gcode), m in zip(gcode_rotated, self.rotated_model[1:]):
-            rot_height = XYZTuple(m.dimensions).z
+            rot_height = XYZTuple(*m.dimensions).z
             logger.debug(f"Running glitch for rotation={rot} with rotated gcode='{gcode}' (original: {gcode_orig})")
             out, res = self.run_glitch2(gcode_orig, gcode,
                                         printerdim, rot,
