@@ -199,8 +199,7 @@ class SlicerPj3d:
                                 y = r['y'],
                                 z = r['z'])
 
-            self.run_pj3d(p, "printpart", f, "--rotxyz",
-                          f"{str(0.0)},{str(0.0)},{str(0.0)}",
+            self.run_pj3d(p, "printpart", f, #"--rotxyz" is removed since model is already rotated
                           #"--suffix", f"{suffix}_rotated" (inherits suffix from rotated stl)
                           )
 
