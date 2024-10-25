@@ -33,13 +33,13 @@ def load_mesh(meshfile):
 
 def rotate_mesh(mesh, rotx, roty, rotz):
     if rotx != 0:
-        mesh.rotate([1, 0, 0], math.radians(rotx)) # why 0.5? this is in the docs
+        mesh.rotate([1, 0, 0], math.radians(-rotx)) # why 0.5? this is in the docs
 
     if roty != 0:
-        mesh.rotate([0, 1, 0], math.radians(roty))
+        mesh.rotate([0, 1, 0], math.radians(-roty))
 
     if rotz != 0:
-        mesh.rotate([0, 0, 1], math.radians(rotz))
+        mesh.rotate([0, 0, 1], math.radians(-rotz))
 
     return None
 
