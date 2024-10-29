@@ -414,8 +414,8 @@ class Model:
 
         if output_dir is not None:
             json_name = f"{gcode_orig.stem}-{gcode_rotated_file.stem}.json"
-            cmd += ["--collect",
-                    str(output_dir / json_name)]
+            cmd += ["--name", json_name,
+                    "--collect", str(output_dir / json_name)]
 
         cmd.extend([str(gcode_orig),
                     xyz2str(self.rotation[0]),
@@ -470,7 +470,8 @@ class Model:
                              heatmap_merge='heatmap_merge.py',
                              dry_run = False):
 
-        cmd = [heatmap_merge] + ["-t", str(self.threshold)] + [str(s) for s in json_files]
+        cmd = [heatmap_merge] + ["-t", str(self.threshold)] + \
+                ["-n", str(self.name)] + [str(s) for s in json_files]
         logger.info(f"Running heatmap_merge: {shlex.join(cmd)}")
 
         if not dry_run:
