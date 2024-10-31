@@ -414,7 +414,7 @@ class Model:
 
         if output_dir is not None:
             json_name = f"{gcode_orig.stem}-{gcode_rotated_file.stem}.json"
-            cmd += ["--name", json_name.split(".")[0],
+            cmd += ["--name", json_name.split(".json")[0],
                     "--collect", str(output_dir / json_name)]
 
         cmd.extend([str(gcode_orig),

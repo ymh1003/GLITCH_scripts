@@ -18,7 +18,7 @@ def to_stl(file):
         for m in stl.Mesh.from_3mf_file(p):
             m.save(np)
         return np
-    elif p.suffix == ".stl":
+    elif p.suffix == ".stl" or p.suffix == ".STL":
         return p
     else:
         raise NotImplementedError("Only support stl/3mf file format")
@@ -50,7 +50,7 @@ def do_scale(args):
     fn = args.output
     if fn is None:
         p = Path(args.file)
-        fn = p.with_stem(f"{p.stem}_scaled_{args.factor}")
+        fn = p.with_stem(f"{p.stem}_scaled")
         
     mesh.export(fn)
     return fn
