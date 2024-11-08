@@ -7,6 +7,7 @@ import logging
 import tempfile
 import sys
 import stlinfo
+import stl
 import shutil
 import subprocess
 from collections import namedtuple
@@ -289,8 +290,18 @@ class Model:
         for rot in m.rotation:
             rotation = XYZTuple(**rot)
             if rotation.x == rotation.y and rotation.y == rotation.z and rotation.x == 0:
-                logging.info("Not generating rotated version")
-                rotated_stls.append(m.path)
+                mp = Path(m.path)
+                if mp.suffix == ".3mf":
+                    logging.info("Converting 3MF to STL")
+                    np = mp.with_suffix(".stl")
+                    for component in stl.Mesh.from_3mf_file(mp):
+                        component.save(np)
+                    rotated_stls.append(np.as_posix())
+                elif mp.suffix == ".stl":
+                    logging.info("Not generating rotated version")
+                    rotated_stls.append(m.path)
+                else:
+                    raise NotImplementedError("Only support stl/3mf file format")
                 continue
 
             suffix = f"__x{rotation.x},y{rotation.y},z{rotation.z}__".replace(".", "_")
