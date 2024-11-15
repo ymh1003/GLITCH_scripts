@@ -32,11 +32,11 @@ def do_compute(args):
     factor = 1
     
     if not f.fits((minp, maxp), x, y, z, rot=False):  # need to scale the mesh
-        px = maxp.x - minp.x + 1
-        py = maxp.y - minp.y + 1
-        pz = maxp.z - minp.z + 1
+        px = maxp.x - minp.x + 5
+        py = maxp.y - minp.y + 5
+        pz = maxp.z - minp.z + 5
         
-        scale = math.ceil(max([px / x, py / y, pz / z]))
+        scale = max([px / x, py / y, pz / z])
         factor = 1 / scale
     
     return factor
@@ -65,7 +65,7 @@ if __name__ == "__main__":
     sp = p.add_subparsers(dest="cmd")
     
     sf = sp.add_parser("compute", help="calculate scaling factor")
-    sf.add_argument("--volume", "-v", default="300,300,250", help="Build volume in the format of x,y,z")
+    sf.add_argument("--volume", "-v", default="300,300,290", help="Build volume in the format of x,y,z")
     
     ss = sp.add_parser("scale", help="scale file")
     ss.add_argument("factor", type=float, help="scaling factor")
