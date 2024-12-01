@@ -396,7 +396,6 @@ class Model:
                     gcode_rotated_file,
                     printer_dims,
                     rotation,
-                    rot_h,
                     oa_bbox,
                     use_float = True,
                     output_dir = None,
@@ -406,12 +405,9 @@ class Model:
 
         center_x, center_y = printer_dims.x / 2, printer_dims.y / 2
 
-        # dim = XYZTuple(*self.rotated_model[0].dimensions)
-        # rot_height = dim.z
-
         boxlwh = [self.boxsize["length"], self.boxsize["width"], self.boxsize["height"]]
 
-        cmd = [glitch, "--height", str(self.dimensions[2]),
+        cmd = [glitch,
                "-c", str(center_x), str(center_y),
                "-s", str(self.sampling),
                "-b"] + [str(s) for s in boxlwh] + \
@@ -427,12 +423,12 @@ class Model:
             json_name = f"{gcode_orig.stem}-{gcode_rotated_file.stem}.json"
             cmd += ["--name", json_name.split(".json")[0],
                     "--collect", str(output_dir / json_name)]
-
+            
         cmd.extend([str(gcode_orig),
                     xyz2str(self.rotation[0]),
                     str(gcode_rotated_file),
                     xyz2str(rotation),
-                    str(rot_h)])
+                    ",".join([str(s) for s in self.dimensions])])
 
         logger.info(f"Running glitch: {shlex.join(cmd)}")
         if not dry_run: return output_dir / json_name, subprocess.run(cmd, check=True)
@@ -462,11 +458,9 @@ class Model:
 
         json_files = []
         for (rot, gcode), m in zip(gcode_rotated, self.rotated_model[1:]):
-            rot_height = XYZTuple(*m.dimensions).z
             logger.debug(f"Running glitch for rotation={rot} with rotated gcode='{gcode}' (original: {gcode_orig})")
             out, res = self.run_glitch2(gcode_orig, gcode,
                                         printerdim, rot,
-                                        rot_height,
                                         oabbox,
                                         output_dir = output_dir,
                                         glitch = glitch,
@@ -490,27 +484,18 @@ class Model:
 
         return None
 
-    def get_oabbox(self, printer_dims,
+    def get_oabbox(self,
                    gcode_orig, gcode_rotated,
                    oa_bbox = 'oa_bbox.py'):
-        center_x, center_y = printer_dims.x / 2, printer_dims.y / 2
         assert hasattr(self, 'rotated_model')
-
-        dim = XYZTuple(*self.rotated_model[0].dimensions)
-        height = dim.z / 2
 
         cmd = [oa_bbox,
                str(gcode_orig),
-               xyz2str(self.rotation[0]),
-               "--height",
-               str(height),
-               f"{center_x},{center_y}"]
+               xyz2str(self.rotation[0])]
 
-        for (rot, gcode), rm in  zip(gcode_rotated, self.rotated_model[1:]):
-            height = rm.dimensions[2] / 2
-            cmd.extend(['-t', str(gcode),
-                        ",".join([str(s) for s in [rot.x, rot.y, rot.z]]),
-                        str(height)
+        for (rot, gcode) in gcode_rotated:
+            cmd.extend(['-p', str(gcode),
+                        ",".join([str(s) for s in [rot.x, rot.y, rot.z]])
                         ])
 
 
@@ -905,7 +890,7 @@ def do_glitch(args):
 
         m.load_heights()
 
-        oabbox = m.get_oabbox(printerdim, gcode_orig, gcode_rotated,
+        oabbox = m.get_oabbox(gcode_orig, gcode_rotated,
                               oa_bbox=paths.oa_bbox)
 
         collect_files = m.invoke_glitch2(printerdim, gcode_orig,
