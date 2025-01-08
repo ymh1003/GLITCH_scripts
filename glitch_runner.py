@@ -113,10 +113,11 @@ def xyz2str(xyzt):
 class SlicerPj3d:
     MACHINE_DIM = re.compile(r'^machine_(depth|height|width)="([0-9\.]+)"$')
 
-    def __init__(self, printername, printsettings, pj3dbin='pj3d'):
+    def __init__(self, printername, printsettings, pj3dbin='pj3d', slicer=None):
         self.printername = printername
         self.printsettings = Path(printsettings).absolute()
         self.pj3d = pj3dbin
+        self.slicer = slicer
         self._load_printer_dimensions()
 
     def _load_printer_dimensions(self):
@@ -145,7 +146,7 @@ class SlicerPj3d:
     def generate_gcode(self, model, storage):
         p = storage / model.name
 
-        self.run_pj3d(p, "create", self.printername, str(self.printsettings))
+        self.run_pj3d(p, "create", *(["-s", self.slicer] if self.slicer else []), self.printername, str(self.printsettings))
         self.run_pj3d(p, "add", model.path)
         self.run_pj3d(p, "pack")
         self.run_pj3d(p, "printpart", model.path)
@@ -182,7 +183,7 @@ class SlicerPj3d:
 
         p = storage / model.name
 
-        self.run_pj3d(p, "create", self.printername, str(self.printsettings))
+        self.run_pj3d(p, "create", *(["-s", self.slicer] if self.slicer else []), self.printername, str(self.printsettings))
         for m in model.rotated_stl: # this contains the original as well
             self.run_pj3d(p, "add", m)
 
@@ -423,7 +424,7 @@ class Model:
             json_name = f"{gcode_orig.stem}-{gcode_rotated_file.stem}.json"
             cmd += ["--name", json_name.split(".json")[0],
                     "--collect", str(output_dir / json_name)]
-            
+
         cmd.extend([str(gcode_orig),
                     xyz2str(self.rotation[0]),
                     str(gcode_rotated_file),
@@ -757,7 +758,7 @@ def do_gcode(args):
     cfg = Config()
     paths = get_paths(args, cfg)
     ge = load_yaml(args.exptyaml)
-    sl = SlicerPj3d(args.printer, args.printsettings, pj3dbin = paths.pj3d)
+    sl = SlicerPj3d(args.printer, args.printsettings, pj3dbin = paths.pj3d, slicer=args.slicer)
 
     models = list([m.name for m in ge.models])
     if args.models:
@@ -783,6 +784,8 @@ def do_gcode(args):
            {'printer': sl.printername,
             'settings': str(sl.printsettings),
             'dimensions': sl.dimensions._asdict()}}
+
+    if sl.slicer: out['slicer']['slicer'] = sl.slicer
 
     modelinfo = {}
     for mn in models:
@@ -974,6 +977,7 @@ if __name__ == "__main__":
     gg.add_argument("printer", help="Printer name")
     gg.add_argument("printsettings", help="Printer settings")
     gg.add_argument("models", nargs="*", help="Specify list of models to include in experiment")
+    gg.add_argument("--slicer", help="pj3d slicer to use")
     gg.add_argument("--pj3d", help="Path to pj3d binary", default=shutil.which('pj3d'))
     gg.add_argument("-l", dest="logfile", help="Specify a log file")
     gg.add_argument("-n", dest="dryrun", help="Dry-run, don't actually generate gcode", action="store_true")
