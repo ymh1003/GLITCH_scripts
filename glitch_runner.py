@@ -18,6 +18,7 @@ import json
 import configparser
 import platform
 import os
+import platform
 
 logger = logging.getLogger()
 XYZTuple = namedtuple('XYZTuple', 'x y z')
@@ -31,12 +32,25 @@ def get_config_dir():
 
     return Path(os.path.abspath(os.path.expanduser(path)))
 
+def get_shortname():
+    import platform
+    n = platform.node()
+    if "." in n: return n[:n.index(".")]
+    return n
+
 class Config:
     def __init__(self, path = None):
         if path is None:
             path = Config.default_path()
 
-        self.configfile = path / 'glitch_runner.cfg'
+        possible_configs = [
+            'glitch_runner.cfg.' + get_shortname(),
+            'glitch_runner.cfg']
+
+        for pc in possible_configs:
+            self.configfile = path / pc
+            if self.configfile.exists(): break
+
         self.config = configparser.ConfigParser()
         if self.configfile.exists():
             logger.info(f"Loaded configuration file: {self.configfile}")
@@ -824,6 +838,131 @@ def do_gcode(args):
     return 0
 
 
+def _check_model_list(argmodels, filemodels):
+    if argmodels:
+        include = set(argmodels)
+        wrong = include - set(filemodels)
+        if len(wrong):
+            print(f"ERROR: Model(s) {wrong} do not exist", file=sys.stderr)
+            return False
+
+        models = list(argmodels)
+        if len(include) != len(models):
+            #TODO: identify duplicate model
+            print(f"ERROR: Duplicate model names in list", file=sys.stderr)
+            return False
+
+    return True
+
+def do_gcmp(args):
+    edir = Path(args.exptdir)
+    if edir.exists():
+        print(f"ERROR: Experiment output directory {args.exptdir} already exists. Remove it if a previous gcmp failed.",
+              file=sys.stderr)
+        return 1
+
+    edirs = []
+    for ed in [args.exptdir1, args.exptdir2]:
+        edd = Path(ed)
+        if not edd.exists():
+            print(f"ERROR: Experiment directory {edd} does not exist.",
+                  file=sys.stderr)
+            return 1
+        edirs.append(edd)
+
+    cfg = Config()
+    paths = get_paths(args, cfg)
+    ge = load_yaml(args.exptyaml)
+
+    jel = []
+    for edd in edirs:
+        with open(edd / "gcodes.json", "r") as f:
+            jel.append(json.load(f))
+
+
+    if not args.dryrun:
+        edir.mkdir()
+
+    printerdim = set([XYZTuple(**je['slicer']['dimensions']) for je in jel])
+    assert len(printerdim) == 1, "Multiple printer dimensions" + str(printerdim)
+    printerdim = printerdim.pop()
+
+    models = []
+    for x in jel:
+        filemodels = list(x['models'].keys())
+        if not _check_model_list(args.models, filemodels):
+            return 1
+        models.extend(filemodels)
+
+    models = list(set(models))
+
+    logger.info(f"Running glitch on {models}")
+    logger.info(f"Glitch output will be stored in {edir}")
+
+    boxsize = None
+    if args.boxsize:
+        try:
+            boxsize = parse_csnum(args.boxsize, float, ('length',
+                                                        'width',
+                                                        'height'),
+                                  0)
+        except ValueError:
+            print(f"ERROR: {args.boxsize} is improperly formatted", file=sys.stderr)
+            return 1
+
+    out = {}
+    for mn in models:
+        m = ge.get_model(mn)
+        m = m.override(args.sampling, boxsize, args.threshold, args.density)
+
+        dirname = mn
+        if m.has_override:
+            dirname = dirname + "+" + m.override_suffix.replace(".", "_")
+            logger.info(f"Invoking glitch for model '{m.name}' with overridden parameters {m.override_suffix}")
+        else:
+            logger.info(f"Invoking glitch for model '{m.name}'")
+
+        gcode_orig = [Path(je['models'][mn]['original']['path'])
+                      for je in jel]
+
+        # we ignore rotated versions for now.
+
+        #gcode_rotated = [(XYZTuple(**r['rotation']),
+        #Path(r['path'])) for r in je['models'][mn]['rotated']]
+
+        opdir = edir / (dirname + '.glitch')
+        assert not opdir.exists(), opdir
+        if not args.dryrun: opdir.mkdir()
+
+        m.rotated_stl = [je['models'][mn]['original']['stlpath'] for je in jel]
+        #assert len(set(m.rotated_stl)) == 1, "The original STL paths differ" + str(m.rotated_stl)
+
+        #m.rotated_stl.extend([r['stlpath'] for r in je['models'][mn]['rotated']])
+
+        m.load_heights()
+
+        #TODO: oabbox for other model
+        oabbox = m.get_oabbox(gcode_orig[0], [],
+                              oa_bbox=paths.oa_bbox)
+
+        collect_files = m.invoke_glitch2(printerdim, gcode_orig[0],
+                                         [(XYZTuple(0,0,0), gcode_orig[1])],
+                                         oabbox,
+                                         output_dir = opdir,
+                                         glitch = paths.glitch,
+                                         dry_run=args.dryrun)
+
+        if collect_files is None and not args.dryrun:
+            return 1
+
+        m.invoke_heatmap_merge(collect_files,
+                               heatmap_merge = paths.heatmap_merge,
+                               dry_run = args.dryrun)
+
+    return 0
+
+
+
 def do_glitch(args):
     edir = Path(args.exptdir)
     if not edir.exists():
@@ -936,6 +1075,8 @@ def do_config(args):
 
     cfg.write_config()
 
+
+
 def setup_logging(args):
     logger.setLevel(logging.INFO)
 
@@ -1015,6 +1156,22 @@ if __name__ == "__main__":
     cm.add_argument("--stlscale", help="Path to stlscale binary")
     cm.add_argument("--stlrotate", help="Path to stlrotate binary")
 
+
+    xgr = sp.add_parser('gcmp', help="Glitch compare two different slicers")
+    xgr.add_argument("exptdir", help="Directory for output of glitch results")
+    xgr.add_argument("exptdir1", help="Directory containing first experiment (with gcode already generated)")
+    xgr.add_argument("exptdir2", help="Directory containing second experiment (with gcode already generated)")
+    xgr.add_argument("models", nargs="*", help="Specify list of models to include in experiment")
+    xgr.add_argument("--glitch", help="Path to glitch", default=shutil.which('gcode_comp_Z.py'))
+    xgr.add_argument("-l", dest="logfile", help="Specify a log file")
+    xgr.add_argument("-n", dest="dryrun", help="Dry-run, don't actually generate gcode", action="store_true")
+    xgr.add_argument("-s", "--sampling", help="Sampling interval", type=float)
+    xgr.add_argument("-t", "--threshold", help="Threshold, in percentile", type=float)
+    xgr.add_argument("-d", "--density", help="Density for each box, in float", type=float)
+    xgr.add_argument("-b", "--boxsize", help="Box/cube size, for visualization") # Is this also used for HD?
+    xgr.add_argument("--oabbox", help="Path to oa_bbox.py", default=shutil.which('oa_bbox.py'))
+    xgr.add_argument("--hmerge", help="Path to heatmap_merge.py", default=shutil.which('heatmap_merge.py'))
+
     args = p.parse_args()
 
     if args.cmd == "create":
@@ -1034,6 +1191,8 @@ if __name__ == "__main__":
         sys.exit(do_glitch(args))
     elif args.cmd == "config":
         sys.exit(do_config(args))
+    elif args.cmd == "gcmp":
+        sys.exit(do_gcmp(args))
     elif args.cmd is None:
         p.print_usage()
         sys.exit(0)
