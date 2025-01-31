@@ -8,3 +8,7 @@ To run comp_script.sh, which takes a STL file as input and visualizes the genera
 To run stlscale, which scales a STL file to fit the given build volume:
     
     python stlscale [/path/to/stlfile] --volume [vol_x,vol_y,vol_z]
+
+To run visualize_pcd.py, which requires open3d in the environment:
+
+    python visualize_pcd.py [/path/to/pcd]
