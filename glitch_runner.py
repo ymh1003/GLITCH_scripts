@@ -266,6 +266,7 @@ class Model:
                        '-o', self.path_scaled, 
                        str(self.scaling)]
                 output = subprocess.check_output(cmd, encoding='utf-8')
+                output = output.strip()
                 
                 # change the dimension info
                 dim = list(map(float, output[1:-1].split()))
