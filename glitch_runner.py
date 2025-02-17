@@ -262,13 +262,14 @@ class Model:
                 #TODO: will we need multiple scaled versions?
                 logger.info(f"Scaling model '{self.name}' by '{self.scaling}' to '{self.path_scaled}'")
 
-                subprocess.run([stlscale,
-                                str(self.path),
-                                'scale',
-                                '-o', self.path_scaled,
-                                str(self.scaling)], encoding='utf-8',
-                               check=True)
-
+                cmd = [stlscale, str(self.path), 'scale', 
+                       '-o', self.path_scaled, 
+                       str(self.scaling)]
+                output = subprocess.check_output(cmd, encoding='utf-8')
+                
+                # change the dimension info
+                dim = list(map(float, output.strip('[]').split()))
+                self.dimensions = XYZTuple(*dim)
 
     def load_heights(self, stlinfo = 'stlinfo'):
         assert hasattr(self, 'rotated_stl')
@@ -491,7 +492,7 @@ class Model:
                              dry_run = False):
 
         cmd = [heatmap_merge] + ["-t", str(self.threshold)] + \
-                ["-n", str(self.name)] + [str(s) for s in json_files]
+                ["-n", str(self.name)] + [str(s) for s in json_files] + ["--distribution"]
         logger.info(f"Running heatmap_merge: {shlex.join(cmd)}")
 
         if not dry_run:

@@ -12,3 +12,5 @@ To run stlscale, which scales a STL file to fit the given build volume:
 To run visualize_pcd.py, which requires open3d in the environment:
 
     python visualize_pcd.py [/path/to/pcd]
+
+Use methods like `set_up` and `set_front` to change the coordinate frame.
