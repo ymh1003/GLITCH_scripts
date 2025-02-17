@@ -268,7 +268,7 @@ class Model:
                 output = subprocess.check_output(cmd, encoding='utf-8')
                 
                 # change the dimension info
-                dim = list(map(float, output.strip('[]').split()))
+                dim = list(map(float, output[1:-1].split()))
                 self.dimensions = XYZTuple(*dim)
 
     def load_heights(self, stlinfo = 'stlinfo'):
