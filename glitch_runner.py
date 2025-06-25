@@ -933,7 +933,7 @@ def do_gcmp(args):
         #Path(r['path'])) for r in je['models'][mn]['rotated']]
 
         opdir = edir / (dirname + '.glitch')
-        assert not opdir.exists(), opdir
+        assert not opdir.exists(), f"{opdir} already exists, not overwriting"
         if not args.dryrun: opdir.mkdir()
 
         m.rotated_stl = [je['models'][mn]['original']['stlpath'] for je in jel]
@@ -1026,7 +1026,7 @@ def do_glitch(args):
                           Path(r['path'])) for r in je['models'][mn]['rotated']]
 
         opdir = edir / (dirname + '.glitch')
-        assert not opdir.exists(), opdir
+        assert not opdir.exists(), f"{opdir} already exists, not overwriting"
         if not args.dryrun: opdir.mkdir()
 
         m.rotated_stl = [je['models'][mn]['original']['stlpath']]
