@@ -265,12 +265,13 @@ class Model:
                 cmd = [stlscale, str(self.path), 'scale', 
                        '-o', self.path_scaled, 
                        str(self.scaling)]
-                output = subprocess.check_output(cmd, encoding='utf-8')
-                output = output.strip()
+                subprocess.run(cmd, encoding='utf-8', check=True)
                 
-                # change the dimension info
-                dim = list(map(float, output[1:-1].split()))
-                self.dimensions = XYZTuple(*dim)
+                # update scaling info
+                ge = load_yaml(args.exptyaml)
+                m = ge.get_model(self.name)
+                m.scaling = self.scaling
+                save_yaml(ge, args.exptyaml)
 
     def load_heights(self, stlinfo = 'stlinfo'):
         assert hasattr(self, 'rotated_stl')
@@ -445,7 +446,7 @@ class Model:
                     xyz2str(self.rotation[0]),
                     str(gcode_rotated_file),
                     xyz2str(rotation),
-                    ",".join([str(s) for s in self.dimensions])])
+                    ",".join([str(s * self.scaling) for s in self.dimensions])])
 
         logger.info(f"Running glitch: {shlex.join(cmd)}")
         if not dry_run: return output_dir / json_name, subprocess.run(cmd, check=True)
@@ -944,7 +945,7 @@ def do_gcmp(args):
         m.load_heights()
 
         #TODO: oabbox for other model
-        oabbox = m.get_oabbox(gcode_orig[0], [],
+        oabbox = m.get_oabbox(gcode_orig[0], [(XYZTuple(0,0,0), gcode_orig[1])],
                               oa_bbox=paths.oa_bbox)
 
         collect_files = m.invoke_glitch2(printerdim, gcode_orig[0],
