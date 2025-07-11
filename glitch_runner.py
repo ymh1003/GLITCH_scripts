@@ -441,11 +441,14 @@ class Model:
             cmd += ["--name", json_name.split(".json")[0],
                     "--collect", str(output_dir / json_name)]
 
+        # by convention [0] is the original model (or its scaled equivalent)
+        orig_dimensions = self.rotated_model[0].dimensions
+        
         cmd.extend([str(gcode_orig),
                     xyz2str(self.rotation[0]),
                     str(gcode_rotated_file),
                     xyz2str(rotation),
-                    ",".join([str(s) for s in self.dimensions])])
+                    ",".join([str(s) for s in orig_dimensions])])
 
         logger.info(f"Running glitch: {shlex.join(cmd)}")
         if not dry_run: return output_dir / json_name, subprocess.run(cmd, check=True)
