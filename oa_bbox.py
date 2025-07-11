@@ -11,7 +11,7 @@ import numpy as np
 import math
 import json
 import sys
-sys.path.append('../Gcode-Checking-Project/')
+#sys.path.append('../Gcode-Checking-Project/')
 from gcode_comp_Z import initialize_global, align_bbox, overall_bbox
 
 
