@@ -51,9 +51,11 @@ def do_scale(args):
     if fn is None:
         p = Path(args.file)
         fn = p.with_stem(f"{p.stem}_scaled")
-   
+        
+    dimensions = mesh.extents
+    
     mesh.export(fn)
-    return fn
+    return dimensions
     
     
 
