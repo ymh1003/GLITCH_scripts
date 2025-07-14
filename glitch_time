@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+LOGFILE="runtime.txt"
+CMD=(gcode_comp_Z.py "$@")
+
+{ time "${CMD[@]}"; } >>"$LOGFILE" 2>&1
