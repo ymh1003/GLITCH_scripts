@@ -5,4 +5,4 @@ set -euo pipefail
 LOGFILE="runtime.txt"
 CMD=(glitch_runner.py "$@")
 
-{ time "${CMD[@]}"; } >>"$LOGFILE" 2>&1
+{ time -p "${CMD[@]}"; } >>"$LOGFILE" 2>&1
