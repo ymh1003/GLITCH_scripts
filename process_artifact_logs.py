@@ -20,6 +20,13 @@ RUNNER_NAME_RE = re.compile("/(?P<name>[^/]+)\.yaml")
 GCODE_TIME_RE = [re.compile("(?P<key>[^,]+) (?P<value>\d+) (?P<unit>ns)"),
                  (re.compile("(?P<key>Time for removing duplicates):\s+(?P<value>[\d\.]+)"), "s")]
 
+DATA_RE  = [re.compile(r"(?P<key>Total number of lines in orig_file):\s+(?P<value>\d+)"),
+            re.compile(r"(?P<key>Total number of lines in rot_file):\s+(?P<value>\d+)"),
+            re.compile(r"(?P<key>Before removing replicates):\s+(?P<value>\d+)"),
+            re.compile(r"(?P<key>After removing replicates):\s+(?P<value>\d+)"),
+            re.compile(r"Total # of (?P<key>points in pcd.):\s+(?P<value>\d+)"),
+            re.compile(r"Note: there are (?P<value>\d+) (?P<key>cubes with infinite hausdorff distance).")]
+
 class RunData:
     def __init__(self, title, logfile):
         self.title = title
@@ -115,6 +122,17 @@ def parse_log(lf):
                     v = m.group('value')
                     current_run_data.add(k, v)
 
+            for dr in DATA_RE:
+                if isinstance(dr, tuple):
+                    dr, key = dr # allow overriding keynames
+                else:
+                    key = None
+
+                m = dr.match(l)
+                if m:
+                    k = key or m.group('key')
+                    v = m.group('value')
+                    current_run_data.add(k, v)
 
     if current_run_data is not None:
         records += 1
