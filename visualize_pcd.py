@@ -1,17 +1,22 @@
+#!/usr/bin/env python3
+
 import open3d as o3d
 import argparse
 from pathlib import Path
+import json
 
 parser = argparse.ArgumentParser(
                     description='Read and visualize a point cloud')
 parser.add_argument("fin_pcd", help="Path to the point cloud file")
-parser.add_argument("--out", default="out.png", help="PNG path for the screenshot")
+parser.add_argument("--out", help="PNG path for the screenshot")
 parser.add_argument("--up", type=float, nargs=3, default=[0.0, 0.0, 1.0],
                     help='Set the up direction of the view')
 parser.add_argument("--front", type=float, nargs=3, default=[1.0, 0.0, 0.0],
                     help='Set the front direction of the view')
-parser.add_argument("--zoom", type=float, default=1.0,
+parser.add_argument("--zoom", type=float, default=None,
                     help='Set the zoom level of the view')
+parser.add_argument("--ni", dest="non_interactive", action="store_true", help="Use in non-interactive mode")
+
 args = parser.parse_args()
 
 PCD = o3d.io.read_point_cloud(args.fin_pcd)
@@ -22,6 +27,20 @@ view_ctl = visualizer.get_view_control()
 
 view_ctl.set_up   ([float(x) for x in args.up])
 view_ctl.set_front([float(x) for x in args.front])
-visualizer.capture_screen_image(args.out, do_render=True)
-print(f"Screenshot written to {Path(args.out).resolve()}")
-visualizer.close()
+
+if args.zoom: view_ctl.set_zoom(args.zoom)
+
+if args.out:
+    visualizer.capture_screen_image(args.out, do_render=True)
+    print(f"Screenshot written to {Path(args.out).resolve()}")
+
+if args.non_interactive:
+    visualizer.close()
+else:
+    visualizer.run()
+    st = json.loads(visualizer.get_view_status())
+    print(st)
+    print("--front", " ".join([str(x) for x in st['trajectory'][0]['front']]), end=' ')
+    print("--up", " ".join([str(x) for x in st['trajectory'][0]['up']]), end=' ')
+    print("--zoom", str(st['trajectory'][0]['zoom']))
+
