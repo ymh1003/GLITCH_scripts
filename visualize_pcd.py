@@ -4,6 +4,8 @@ import open3d as o3d
 import argparse
 from pathlib import Path
 import json
+import sys
+import os
 
 parser = argparse.ArgumentParser(
                     description='Read and visualize a point cloud')
@@ -24,6 +26,14 @@ visualizer = o3d.visualization.Visualizer()
 visualizer.create_window()
 visualizer.add_geometry(PCD)
 view_ctl = visualizer.get_view_control()
+
+if view_ctl is None:
+    print("ERROR: Couldn't get view control. Failed to render.", file=sys.stderr)
+    print("If you're using Wayland, setting XDG_SESSION_TYPE=x11 for this command might help", file=sys.stderr)
+    if 'DISPLAY' not in os.environ:
+        print("DISPLAY variable is not set.", file=sys.stderr)
+
+    sys.exit(1)
 
 view_ctl.set_up   ([float(x) for x in args.up])
 view_ctl.set_front([float(x) for x in args.front])
