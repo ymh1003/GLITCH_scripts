@@ -49,7 +49,6 @@ if args.non_interactive:
 else:
     visualizer.run()
     st = json.loads(visualizer.get_view_status())
-    print(st)
     print("--front", " ".join([str(x) for x in st['trajectory'][0]['front']]), end=' ')
     print("--up", " ".join([str(x) for x in st['trajectory'][0]['up']]), end=' ')
     print("--zoom", str(st['trajectory'][0]['zoom']))
