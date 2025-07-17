@@ -444,17 +444,17 @@ class Model:
         # by convention [0] is the original model (or its scaled
         # equivalent) however, we need to pass the dimensions for the
         # model with 0,0,0 rotation which may be at a different index.
+
         for i, r in enumerate(self.rotation):
             if (r['x'] == 0) and (r['x'] == r['y']) and (r['y'] == r['z']):
-                orig_index = i
+                # this will handle scaling
+                logger.warning(f"Rotation 0,0,0 model is not at index 0, is at index {i}")
+                orig_dimensions = self.rotated_model[i].dimensions
                 break
         else:
-            orig_index = 0
-
-        if orig_index != 0:
-            logger.warning(f"Rotation 0,0,0 model is not at index 0, is at index {orig_index}")
-
-        orig_dimensions = self.rotated_model[orig_index].dimensions
+            #TODO: this will *not* handle scaling done by do_scale
+            orig_dimensions = self.dimensions
+            logger.warning(f"None of the rotated models are 0,0,0, using original dimensions")
 
         cmd.extend([str(gcode_orig),
                     xyz2str(self.rotation[0]),
