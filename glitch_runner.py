@@ -448,7 +448,7 @@ class Model:
         for i, r in enumerate(self.rotation):
             if (r['x'] == 0) and (r['x'] == r['y']) and (r['y'] == r['z']):
                 # this will handle scaling
-                logger.warning(f"Rotation 0,0,0 model is not at index 0, is at index {i}")
+                logger.info(f"Rotation 0,0,0 model is at index {i}")
                 orig_dimensions = self.rotated_model[i].dimensions
                 break
         else:
