@@ -10,6 +10,7 @@ SLICER_COMPARISON_BEGIN_RE = re.compile(r"gcode_comp_Z\.py --prusa")
 MESHREPAIR_COMPARISON_BEGIN_RE = re.compile(r"gcode_comp_Z\.py.*mesh(lab|mixer)")
 INVARIANT_CHECKING_BEGIN_RE = re.compile(r"glitch_runner.py tricky")
 MAKE_ERROR_RE = re.compile(r"make: \*\*\* .*Error.*")
+VISUALIZE_PCD_BEGIN_RE = re.compile(r"if.* visualize_pcd\.py")
 
 # handle both time and time -p
 TIME_OUTPUT_RE =re.compile(r"^(?P<key>real|user|sys)\s+(?P<value>[0-9ms.]+)$")
@@ -83,7 +84,8 @@ def parse_log(lf):
         for l in f:
             for pattern in [SLICER_COMPARISON_BEGIN_RE,
                              MESHREPAIR_COMPARISON_BEGIN_RE,
-                             INVARIANT_CHECKING_BEGIN_RE]:
+                             INVARIANT_CHECKING_BEGIN_RE,
+                             VISUALIZE_PCD_BEGIN_RE]:
                 m = pattern.search(l)
                 if m is not None:
                     if current_run_data is not None:
