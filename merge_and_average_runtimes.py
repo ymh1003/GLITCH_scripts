@@ -97,9 +97,11 @@ def produce_fig_csv(avg_data, printdata):
 
     ad = avg_data.join(pt)
     out = pd.DataFrame({'Analysis time': ad['mean'],
+                        'CI95': ad['ci95'],
                         'Print time': ad['Print time'],
                         })
     out['Ratio'] = out['Analysis time'] / out['Print time']
+
     out.index.name = 'Benchmark name'
     return out
 
