@@ -55,6 +55,10 @@ def get_files(directory, force_all = False):
 
         pf = Path(f)
         pk = str(pf.parent)
+        if not pk.endswith('.glitch'):
+            # skip .glitch.orig
+            continue
+
         if pk not in out:
             out[pk] = {'png': [],
                        'pdf': []}
